@@ -38,7 +38,7 @@ class IndexFactory {
    *   - type(optional): The name of the type to use for the given index.
    */
   public static function index(IndexInterface $index, $with_type = FALSE) {
-    $params = [];
+    $params          = [];
     $params['index'] = IndexFactory::getIndexName($index);
 
     if ($with_type) {
@@ -56,26 +56,26 @@ class IndexFactory {
    *
    * @return array
    */
-   public static function create(IndexInterface $index) {
-     $indexName = IndexFactory::getIndexName($index);
-     $indexConfig =  [
-       'index' => $indexName,
-       'body' => [
-         'settings' => [
-           'number_of_shards' => $index->getOption('number_of_shards', 5),
-           'number_of_replicas' => $index->getOption('number_of_replicas', 1),
-         ],
-       ],
-     ];
+  public static function create(IndexInterface $index) {
+    $indexName   = IndexFactory::getIndexName($index);
+    $indexConfig = [
+      'index' => $indexName,
+      'body'  => [
+        'settings' => [
+          'number_of_shards'   => $index->getOption('number_of_shards', 5),
+          'number_of_replicas' => $index->getOption('number_of_replicas', 1),
+        ],
+      ],
+    ];
 
-     // Allow other modules to alter index config before we create it.
-     $dispatcher = \Drupal::service('event_dispatcher');
-     $prepareIndexEvent = new PrepareIndexEvent($indexConfig, $indexName);
-     $event = $dispatcher->dispatch(PrepareIndexEvent::PREPARE_INDEX, $prepareIndexEvent);
-     $indexConfig = $event->getIndexConfig();
+    // Allow other modules to alter index config before we create it.
+    $dispatcher        = \Drupal::service('event_dispatcher');
+    $prepareIndexEvent = new PrepareIndexEvent($indexConfig, $indexName);
+    $event             = $dispatcher->dispatch(PrepareIndexEvent::PREPARE_INDEX, $prepareIndexEvent);
+    $indexConfig       = $event->getIndexConfig();
 
-     return $indexConfig;
-   }
+    return $indexConfig;
+  }
 
   /**
    * Build parameters to bulk delete indexes.
@@ -91,8 +91,8 @@ class IndexFactory {
       $params['body'][] = [
         'delete' => [
           '_index' => $params['index'],
-          '_type' => $params['type'],
-          '_id' => $id,
+          '_type'  => $params['type'],
+          '_id'    => $id,
         ],
       ];
     }
@@ -111,6 +111,8 @@ class IndexFactory {
    * @return array
    *   Array of parameters to send along to Elasticsearch to perform the bulk
    *   index.
+   *
+   * @throws \Drupal\search_api\SearchApiException
    */
   public static function bulkIndex(IndexInterface $index, array $items) {
     $params = IndexFactory::index($index, TRUE);
@@ -161,35 +163,41 @@ class IndexFactory {
    *
    * @return array
    *   Parameters required to create an index mapping.
+   *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public static function mapping(IndexInterface $index) {
     $params = IndexFactory::index($index, TRUE);
 
     $properties = [
       'id' => [
-        'type' => 'keyword',
+        'type'  => 'keyword',
         'index' => 'true',
       ],
     ];
 
     // Figure out which fields are used for autocompletion if any.
     if (\Drupal::moduleHandler()->moduleExists('search_api_autocomplete')) {
-      $autocompletes = \Drupal::entityTypeManager()->getStorage('search_api_autocomplete_search')->loadMultiple();
+      $autocompletes             = \Drupal::entityTypeManager()->getStorage('search_api_autocomplete_search')->loadMultiple();
       $all_autocompletion_fields = [];
       foreach ($autocompletes as $autocomplete) {
         $suggester = \Drupal::service('plugin.manager.search_api_autocomplete.suggester');
-        $plugin = $suggester->createInstance('server', ['#search' => $autocomplete]);
+        $plugin    = $suggester->createInstance('server', ['#search' => $autocomplete]);
         assert($plugin instanceof SuggesterInterface);
-        $configuration = $plugin->getConfiguration();
-        $autocompletion_fields = isset($configuration['fields']) ? $configuration['fields'] : [];
+        $configuration         = $plugin->getConfiguration();
+        $autocompletion_fields = $configuration['fields'] ?? [];
         if (!$autocompletion_fields) {
-          $autocompletion_fields = $plugin->getSearch()->getIndex()->getFulltextFields();
+          $autocompletion_fields = $plugin
+            ->getSearch()
+            ->getIndex()
+            ->getFulltextFields();
         }
 
         // Collect autocompletion fields in an array keyed by field id.
         $all_autocompletion_fields += array_flip($autocompletion_fields);
       }
-     }
+    }
 
     // Map index fields.
     foreach ($index->getFields() as $field_id => $field_data) {
@@ -207,10 +215,10 @@ class IndexFactory {
     $params['body'][$params['type']]['properties'] = $properties;
 
     // Allow other modules to alter index mapping before we create it.
-    $dispatcher = \Drupal::service('event_dispatcher');
+    $dispatcher               = \Drupal::service('event_dispatcher');
     $prepareIndexMappingEvent = new PrepareIndexMappingEvent($params, $params['index']);
-    $event = $dispatcher->dispatch(PrepareIndexMappingEvent::PREPARE_INDEX_MAPPING, $prepareIndexMappingEvent);
-    $params = $event->getIndexMappingParams();
+    $event                    = $dispatcher->dispatch(PrepareIndexMappingEvent::PREPARE_INDEX_MAPPING, $prepareIndexMappingEvent);
+    $params                   = $event->getIndexMappingParams();
 
     return $params;
   }
@@ -227,7 +235,7 @@ class IndexFactory {
    */
   public static function getIndexName(IndexInterface $index) {
 
-    $options = \Drupal::database()->getConnectionOptions();
+    $options       = \Drupal::database()->getConnectionOptions();
     $site_database = $options['database'];
 
     $index_machine_name = is_string($index) ? $index : $index->id();
@@ -243,11 +251,11 @@ class IndexFactory {
    * Helper function. Returns the elasticsearch value for a given field.
    *
    * @param string $field_type
-   * @param mixed $value
+   * @param mixed $raw
    *
    * @return string
    */
-  protected static function getFieldValue($field_type, $raw) {
+  protected static function getFieldValue($field_type, $raw): string {
     switch ($field_type) {
       case 'string':
         $value = (string) $raw;
@@ -274,7 +282,6 @@ class IndexFactory {
     }
     return $value;
   }
-
 
   /**
    * Helper function. Returns true if the field is a list of values.

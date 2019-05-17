@@ -20,20 +20,20 @@ class MappingFactory {
    *   Array of settings when a known field type is provided. Null otherwise.
    */
   public static function mappingFromField(FieldInterface $field) {
-    $type = $field->getType();
+    $type          = $field->getType();
     $mappingConfig = NULL;
 
     switch ($type) {
       case 'text':
         $mappingConfig = [
-          'type' => 'text',
-          'boost' => $field->getBoost(),
+          'type'   => 'text',
+          'boost'  => $field->getBoost(),
           'fields' => [
-            "keyword" => [
-              "type" => 'keyword',
+            'keyword' => [
+              'type'         => 'keyword',
               'ignore_above' => 256,
-            ]
-          ]
+            ],
+          ],
         ];
         break;
 
@@ -66,7 +66,7 @@ class MappingFactory {
 
       case 'date':
         $mappingConfig = [
-          'type' => 'date',
+          'type'   => 'date',
           'format' => 'strict_date_optional_time||epoch_second',
         ];
         break;
@@ -79,16 +79,16 @@ class MappingFactory {
 
       case 'object':
         $mappingConfig = [
-          'type' => 'nested'
+          'type' => 'nested',
         ];
         break;
     }
 
     // Allow other modules to alter mapping config before we create it.
-    $dispatcher = \Drupal::service('event_dispatcher');
+    $dispatcher          = \Drupal::service('event_dispatcher');
     $prepareMappingEvent = new PrepareMappingEvent($mappingConfig, $type, $field);
-    $event = $dispatcher->dispatch(PrepareMappingEvent::PREPARE_MAPPING, $prepareMappingEvent);
-    $mappingConfig = $event->getMappingConfig();
+    $event               = $dispatcher->dispatch(PrepareMappingEvent::PREPARE_MAPPING, $prepareMappingEvent);
+    $mappingConfig       = $event->getMappingConfig();
 
     return $mappingConfig;
   }

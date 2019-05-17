@@ -65,7 +65,7 @@ class FilterFactory {
               'must_not' => [
                 'terms' => [$condition->getField() => array_values($condition->getValue())],
               ],
-            ]
+            ],
           ];
           break;
 
@@ -75,7 +75,7 @@ class FilterFactory {
               'must_not' => [
                 'term' => [$condition->getField() => $condition->getValue()],
               ],
-            ]
+            ],
           ];
           break;
 
@@ -156,8 +156,8 @@ class FilterFactory {
                     'include_upper' => FALSE,
                   ],
                 ],
-              ]
-            ]
+              ],
+            ],
           ];
           break;
 
