@@ -2,7 +2,9 @@
 
 namespace Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory;
 
+use Drupal\field\FieldConfigInterface;
 use Drupal\search_api\IndexInterface;
+use Drupal\search_api\Item\FieldInterface;
 use Drupal\search_api\Utility\Utility;
 use Drupal\elasticsearch_connector\Event\PrepareIndexEvent;
 use Drupal\elasticsearch_connector\Event\PrepareIndexMappingEvent;
@@ -278,26 +280,40 @@ class IndexFactory {
    * Helper function. Returns true if the field is a list of values.
    *
    * @param \Drupal\search_api\IndexInterface $index
-   * @param \Drupal\search_api\Item\Field $field
+   *   Index.
+   * @param \Drupal\search_api\Item\FieldInterface $field
+   *   Field.
    *
    * @return bool
+   *   Returns list check result.
+   *
+   * @throws \Drupal\search_api\SearchApiException
    */
-  protected static function isFieldList($index, $field) {
+  protected static function isFieldList(IndexInterface $index, FieldInterface $field): bool {
     $is_list = FALSE;
 
-    // Ensure we get the field definition for the root/parent field item (ie tags).
-    $property_definitions =  $index->getPropertyDefinitions($field->getDatasourceId());
-    $root_property = Utility::splitPropertyPath($field->getPropertyPath(), FALSE)[0];
-    $field_definition = $property_definitions[$root_property];
+    // Ensure we get the field definition for the
+    // root/parent field item (ie tags).
+    $property_definitions = $index->getPropertyDefinitions($field->getDatasourceId());
+    $root_property        = Utility::splitPropertyPath($field->getPropertyPath(), FALSE)[0];
+    $field_definition     = $property_definitions[$root_property];
 
     // Using $field_definition->isList() doesn't seem to be accurate, so we
     // check the fieldStorage cardinality !=1.
-    if (method_exists($field_definition, 'getFieldStorageDefinition')) {
+    if ($field_definition instanceof FieldConfigInterface) {
       $storage = $field_definition->getFieldStorageDefinition();
-      if (1 != $storage->getCardinality()) {
+      if (1 !== $storage->getCardinality()) {
         $is_list = TRUE;
       }
     }
+
+    // If there are > 1 value in a field, we can assume
+    // it's intentionally a list.
+    if (count($field->getValues()) > 1) {
+      $is_list = TRUE;
+    }
+
     return $is_list;
   }
+
 }
