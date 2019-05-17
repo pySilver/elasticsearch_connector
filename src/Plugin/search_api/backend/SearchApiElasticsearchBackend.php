@@ -420,27 +420,42 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       if ($this->client->indices()->existsType($params)) {
         $current_mapping = $this->client->indices()->getMapping($params);
         if (!empty($current_mapping)) {
-          try {
-            // If the mapping exits, delete it to be able to re-create it.
-            $this->client->indices()->deleteMapping($params);
+          // First check there are mapping changes to update.
+          if ($this->hasMappingChanges($index, TRUE)) {
+            try {
+              // If the mapping exits, delete it to be able to re-create it.
+              $this->client->indices()->deleteMapping($params);
+            }
+            catch (ElasticsearchException $e) {
+              // If the mapping exits, delete the index and recreate it.
+              // In Elasticsearch 2.3 it is not possible to delete a mapping,
+              // so don't use $this->client->indices()->deleteMapping as doing
+              // so will throw an exception.
+              $this->removeIndex($index);
+              $this->addIndex($index);
+            }
+
+            $response = $this->client->indices()->putMapping(
+              $this->indexFactory->mapping($index)
+            );
+
+            if (!$this->client->CheckResponseAck($response)) {
+              drupal_set_message(t('Cannot create the mapping of the fields!'), 'error');
+            }
           }
-          catch (ElasticsearchException $e) {
-            // If the mapping exits, delete the index and recreate it.
-            // In Elasticsearch 2.3 it is not possible to delete a mapping,
-            // so don't use $this->client->indices()->deleteMapping as doing so
-            // will throw an exception.
-            $this->removeIndex($index);
-            $this->addIndex($index);
+          else {
+            return FALSE;
           }
         }
       }
+      else {
+        $response = $this->client->indices()->putMapping(
+          $this->indexFactory->mapping($index)
+        );
 
-      $response = $this->client->indices()->putMapping(
-        $this->indexFactory->mapping($index)
-      );
-
-      if (!$this->client->CheckResponseAck($response)) {
-        drupal_set_message(t('Cannot create the mapping of the fields!'), 'error');
+        if (!$this->client->CheckResponseAck($response)) {
+          drupal_set_message(t('Cannot create the mapping of the fields!'), 'error');
+        }
       }
     }
     catch (ElasticsearchException $e) {
@@ -449,6 +464,77 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
     }
 
     return TRUE;
+  }
+
+  /**
+   * Check if the index has mapping differences.
+   *
+   * @param \Drupal\search_api\IndexInterface $index
+   *   Index for which to update fields.
+   * @param bool $exclude_boost
+   *   Whether to exclude boost-only changes.
+   *
+   * @return bool
+   *   TRUE if changes, FALSE otherwise.
+   */
+  public function hasMappingChanges(IndexInterface $index, $exclude_boost = TRUE) {
+    $params = $this->indexFactory->index($index, TRUE);
+
+    // Get the new mapping settings.
+    $new_mapping = $this->indexFactory->mapping($index);
+
+    // Get the current mapping settings.
+    $current_mapping = $this->client->indices()->getMapping($params);
+
+    // We can make efficiency savings if the two arrays are identical as that
+    // means there are no changes.
+    if ($new_mapping['body'] == $current_mapping[$params['index']]['mappings']) {
+      return FALSE;
+    }
+
+    // Fields were either added, or removed. So we need to reindex.
+    if (count($new_mapping['body']) !== count($current_mapping[$params['index']]['mappings'])) {
+      return TRUE;
+    }
+
+    // Loop through each of the field mappings and compare them to the new
+    // values.
+    foreach ($current_mapping[$params['index']]['mappings'][$params['type']]['properties'] as $property_name => $property) {
+      // Do not compare the id fields because they always contain changes.
+      if ($property_name == 'id') {
+        continue;
+      }
+
+      // Store the new mapping value so we can reference it and manipulate it
+      // more easily.
+      $new_value = $new_mapping['body'][$params['type']]['properties'][$property_name];
+
+      // Are the two properties identical?
+      if ($property == $new_value) {
+        continue;
+      }
+
+      // If we wish to exclude boost values from the comparison, then remove
+      // the boost key from the arrays we are comparing, and run the comparison.
+      if ($exclude_boost) {
+        if (array_key_exists('boost', $property)) {
+          unset($property['boost']);
+        }
+        if (array_key_exists('boost', $new_value)) {
+          unset($new_value['boost']);
+        }
+
+        if ($property == $new_value) {
+          continue;
+        }
+      }
+
+      // If we are here, then there are changes to this mapping, so we do not
+      // need to continue checking for more changes, as one is enough to
+      // trigger the reindex.
+      return TRUE;
+    }
+    return FALSE;
   }
 
   /**
