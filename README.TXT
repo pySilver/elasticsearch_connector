@@ -1,6 +1,6 @@
 Elasticsearch Connector is a set of modules designed to build a full Elasticsearch eco system in Drupal.
 
-Installation!
+Installation
 ============
 
 Download this module with the following command:
