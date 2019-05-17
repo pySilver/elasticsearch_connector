@@ -111,7 +111,7 @@ class ClusterForm extends EntityForm {
     );
 
     $form['url'] = array(
-      '#type' => 'textfield',
+      '#type' => 'url',
       '#title' => t('Server URL'),
       '#default_value' => !empty($this->entity->url) ? $this->entity->url : '',
       '#description' => t(
@@ -240,7 +240,6 @@ class ClusterForm extends EntityForm {
     parent::validateForm($form, $form_state);
     $values = $form_state->getValues();
 
-    // TODO: Check for valid URL when we are submitting the form.
     // Set default cluster.
     $default = $this->clusterManager->getDefaultCluster();
     if (empty($default) && !$values['default']) {
