@@ -100,11 +100,13 @@ class ElasticsearchController extends ControllerBase {
     if ($client_connector->isClusterOk()) {
       // Nodes.
       $es_node_namespace = $client_connector->getNodesProperties();
+      $plugins = $client_connector->getInstalledPlugins();
       $node_stats = $es_node_namespace['stats'];
 
       $total_docs = 0;
       $total_size = 0;
       $node_rows = [];
+      $plugin_rows = [];
       if (!empty($node_stats['nodes'])) {
         // TODO: Better format the results in order to build the
         // correct output.
@@ -120,6 +122,15 @@ class ElasticsearchController extends ControllerBase {
           $total_docs += $node_properties['indices']['docs']['count'];
           $total_size += $node_properties['indices']['store']['size_in_bytes'];
           $node_rows[] = $row;
+
+          foreach ($plugins[$node_id] as $key => $plugin) {
+            $row = [];
+            $row[] = ['data' => $plugin['name']];
+            $row[] = ['data' => $plugin['version']];
+            $row[] = ['data' => $plugin['description']];
+            $row[] = ['data' => $node_properties['name']];
+            $plugin_rows[] = $row;
+          }
         }
       }
 
@@ -208,6 +219,18 @@ class ElasticsearchController extends ControllerBase {
       ],
       '#rows' => $cluster_statistics_rows,
       '#attributes' => ['class' => ['admin-elasticsearch-statistics']],
+    ];
+
+    $output['cluster_statistics_wrapper']['cluster_plugins'] = [
+      '#theme' => 'table',
+      '#header' => [
+        ['data' => t('Plugin name')],
+        ['data' => t('Plugin Version')],
+        ['data' => t('Plugin Description')],
+        ['data' => t('Node')],
+      ],
+      '#rows' => $plugin_rows,
+      '#attributes' => [],
     ];
 
     $output['cluster_health'] = [
