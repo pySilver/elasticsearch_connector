@@ -3,6 +3,7 @@
 namespace Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory;
 
 use Drupal\search_api\IndexInterface;
+use Drupal\search_api\Utility\Utility;
 use Drupal\elasticsearch_connector\Event\PrepareIndexEvent;
 use Drupal\elasticsearch_connector\Event\PrepareIndexMappingEvent;
 use Drupal\search_api_autocomplete\Suggester\SuggesterInterface;
@@ -119,23 +120,23 @@ class IndexFactory {
       /** @var \Drupal\search_api\Item\FieldInterface $field */
       foreach ($item as $name => $field) {
         $field_type = $field->getType();
+
+        // Set to list only if list.
+        $value = NULL;
+        if (self::isFieldList($index, $field)) {
+          $value = [];
+        }
         if (!empty($field->getValues())) {
-          $values = array();
-          foreach ($field->getValues() as $value) {
-            switch ($field_type) {
-              case 'string':
-                $values[] = (string) $value;
-                break;
+          foreach ($field->getValues() as $val) {
 
-              case 'text':
-                $values[] = $value->toText();
-                break;
-
-              default:
-                $values[] = $value;
+            if (self::isFieldList($index, $field)) {
+              $value[] = self::getFieldValue($field_type, $val);
+            }
+            else {
+              $value = self::getFieldValue($field_type, $val);
             }
           }
-          $data[$field->getFieldIdentifier()] = $values;
+          $data[$field->getFieldIdentifier()] = $value;
         }
       }
       $params['body'][] = ['index' => ['_id' => $id]];
@@ -236,4 +237,67 @@ class IndexFactory {
     ));
   }
 
+  /**
+   * Helper function. Returns the elasticsearch value for a given field.
+   *
+   * @param string $field_type
+   * @param mixed $value
+   *
+   * @return string
+   */
+  protected static function getFieldValue($field_type, $raw) {
+    switch ($field_type) {
+      case 'string':
+        $value = (string) $raw;
+        break;
+
+      case 'text':
+        $value = $raw->toText();
+        break;
+
+      case 'boolean':
+        $value = (boolean) $raw;
+        break;
+
+      case 'integer':
+        $value = (integer) $raw;
+        break;
+
+      case 'decimal':
+        $value = (float) $raw;
+        break;
+
+      default:
+        $value = $raw;
+    }
+    return $value;
+  }
+
+
+  /**
+   * Helper function. Returns true if the field is a list of values.
+   *
+   * @param \Drupal\search_api\IndexInterface $index
+   * @param \Drupal\search_api\Item\Field $field
+   *
+   * @return bool
+   */
+  protected static function isFieldList($index, $field) {
+    $is_list = FALSE;
+
+    // Ensure we get the field definition for the root/parent field item (ie tags).
+    $property_definitions =  $index->getPropertyDefinitions($field->getDatasourceId());
+    $root_property = Utility::splitPropertyPath($field->getPropertyPath(), FALSE)[0];
+    $field_definition = $property_definitions[$root_property];
+
+    // Using $field_definition->isList() doesn't seem to be accurate, so we
+    // check the fieldStorage cardinality !=1.
+    if (method_exists($field_definition, 'getFieldStorageDefinition')) {
+      $storage = $field_definition->getFieldStorageDefinition();
+      if (1 != $storage->getCardinality()) {
+        $is_list = TRUE;
+      }
+    }
+    return $is_list;
+  }
 }
