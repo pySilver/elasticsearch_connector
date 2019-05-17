@@ -13,6 +13,7 @@ use Drupal\search_api\Query\ConditionGroupInterface;
 use Drupal\search_api\Query\QueryInterface;
 use Elasticsearch\Common\Exceptions\ElasticsearchException;
 use MakinaCorpus\Lucene\Query;
+use MakinaCorpus\Lucene\CollectionQuery;
 use MakinaCorpus\Lucene\TermCollectionQuery;
 use MakinaCorpus\Lucene\TermQuery;
 use Drupal\elasticsearch_connector\Event\PrepareSearchQueryEvent;
@@ -283,6 +284,46 @@ class SearchBuilder {
    *   Return a lucene query object.
    */
   protected function flattenKeys(array $keys, ParseModeInterface $parse_mode = NULL, $fuzzy = TRUE) {
+    // Grab the conjunction if present.
+    $conjunction = isset($keys['#conjunction']) ? $keys['#conjunction'] : 'AND';
+
+    $query = new CollectionQuery();
+    $query->setOperator($conjunction);
+
+    if (is_string(reset($keys))) {
+      $termCollection = $this->createTermCollection($keys, $fuzzy);
+      $query->add($termCollection);
+      return $query;
+    }
+
+    // Filter out top level properties beginning with '#'.
+    $keys = array_filter($keys, function ($key) {
+      return $key[0] !== '#';
+    }, ARRAY_FILTER_USE_KEY);
+
+    foreach ($keys as $key) {
+      $termCollection = $this->createTermCollection($key, $fuzzy);
+      $query->add($termCollection);
+    }
+
+    return $query;
+  }
+
+  /**
+   * Create a TermCollectionQuery.
+   *
+   * @param array $keys
+   *   Search keys, in the format described by
+   *   \Drupal\search_api\ParseMode\ParseModeInterface::parseInput().
+   * @param \Drupal\search_api\ParseMode\ParseModeInterface $parse_mode
+   *   Search API parse mode.
+   * @param bool $fuzzy
+   *   Enable fuzzy support or not.
+   *
+   * @return \MakinaCorpus\Lucene\TermCollectionQuery
+   *   Return a lucene term collection query.
+   */
+  protected function createTermCollection($keys, $fuzzy) {
     // Grab the conjunction and negation properties if present.
     $conjunction = isset($keys['#conjunction']) ? $keys['#conjunction'] : 'AND';
     $negation = !empty($keys['#negation']);
@@ -303,15 +344,10 @@ class SearchBuilder {
     foreach ($keys as $key) {
       $element = NULL;
 
-      if (is_array($key)) {
-        $element = $this->luceneFlattenKeys($key, $parse_mode);
-      }
-      elseif (is_string($key)) {
-        $element = (new TermQuery())
-          ->setValue($key);
-        if ($fuzzy) {
-          $element->setFuzzyness($fuzzy);
-        }
+      $element = (new TermQuery())
+        ->setValue($key);
+      if ($fuzzy) {
+        $element->setFuzzyness($fuzzy);
       }
 
       if (isset($element)) {
@@ -321,6 +357,7 @@ class SearchBuilder {
 
     return $query;
   }
+
 
   /**
    * Helper function that returns sort for query in search.
