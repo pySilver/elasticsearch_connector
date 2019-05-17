@@ -709,11 +709,13 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
         }
         else {
           $buckets = $response['aggregations'][$key]['buckets'];
-          array_walk($buckets, function ($value) use (&$terms) {
-            $terms[] = [
-              'count' => $value['doc_count'],
-              'filter' => '"' . $value['key'] . '"',
-            ];
+          array_walk($buckets, function ($value) use (&$terms, $facet) {
+            if ($value['doc_count'] >= $facet['min_count']) {
+              $terms[] = [
+                'count' => $value['doc_count'],
+                'filter' => '"' . $value['key'] . '"',
+              ];
+            }
           });
         }
       }
@@ -723,11 +725,13 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
         }
         else {
           $buckets = $response['aggregations'][$key . '_global'][$key]['buckets'];
-          array_walk($buckets, function ($value) use (&$terms) {
-            $terms[] = [
-              'count' => $value['doc_count'],
-              'filter' => '"' . $value['key'] . '"',
-            ];
+          array_walk($buckets, function ($value) use (&$terms, $facet) {
+            if ($value['doc_count'] >= $facet['min_count']) {
+              $terms[] = [
+                'count' => $value['doc_count'],
+                'filter' => '"' . $value['key'] . '"',
+              ];
+            }
           });
         }
       }
