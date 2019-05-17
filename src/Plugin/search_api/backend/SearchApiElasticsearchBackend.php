@@ -610,6 +610,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       $params['body']['aggs']['autocomplete']['terms'] = [
         'field' => $query->getOption('autocomplete_field'),
         'include' => $incomplete_key . '.*',
+        'size' => $query->getOption('limit'),
       ];
     }
 
