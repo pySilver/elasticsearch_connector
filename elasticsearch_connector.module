@@ -561,4 +561,5 @@ function elasticsearch_connector_site_hash() {
  */
 function elasticsearch_connector_search_api_field_type_mapping_alter(array &$mapping) {
   $mapping['object'] = 'object';
+  $mapping['nested_object'] = 'object';
 }
