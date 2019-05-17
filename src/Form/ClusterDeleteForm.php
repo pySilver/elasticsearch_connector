@@ -3,7 +3,7 @@
 namespace Drupal\elasticsearch_connector\Form;
 
 use Drupal\Core\Entity\EntityConfirmFormBase;
-use Drupal\Core\Entity\EntityTypeManager;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 use Drupal\elasticsearch_connector\ClusterManager;
@@ -27,7 +27,7 @@ class ClusterDeleteForm extends EntityConfirmFormBase {
    * This object members must be set to anything other than private in order for
    * \Drupal\Core\DependencyInjection\DependencySerialization to be detected.
    *
-   * @var \Drupal\Core\Entity\EntityManager
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
    */
   protected $entityManager;
 
@@ -41,7 +41,7 @@ class ClusterDeleteForm extends EntityConfirmFormBase {
   /**
    * Constructs an IndexForm object.
    *
-   * @param \Drupal\Core\Entity\EntityManager|\Drupal\Core\Entity\EntityTypeManager $entity_manager
+   * @param Drupal\Core\Entity\EntityTypeManagerInterface $entity_manager
    *   The entity manager.
    * @param \Drupal\elasticsearch_connector\ElasticSearch\ClientManagerInterface $client_manager
    *   The client manager.
@@ -49,7 +49,7 @@ class ClusterDeleteForm extends EntityConfirmFormBase {
    *   The cluster manager.
    */
   public function __construct(
-    EntityTypeManager $entity_manager,
+    EntityTypeManagerInterface $entity_manager,
     ClientManagerInterface $client_manager,
     ClusterManager $cluster_manager
   ) {
