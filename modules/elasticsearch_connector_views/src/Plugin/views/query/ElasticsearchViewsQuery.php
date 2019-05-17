@@ -316,10 +316,10 @@ class ElasticsearchViewsQuery extends QueryPluginBase {
     foreach ($view->field as $field_name => &$field) {
       $field->field_alias = $field_name;
       $field->aliases['entity_type'] = 'entity_type';
+      $this->params['fields'][] = $field->realField;
     }
 
     // Add fields to the query so they will be shown in solr document.
-    $this->params['fields'] = array_keys($view->field);
     $this->params['fields'][] = '_source';
 
     $params = array();
@@ -410,6 +410,27 @@ class ElasticsearchViewsQuery extends QueryPluginBase {
     );
   }
 
+  protected function readProperty($result, $property_path) {
+    foreach ($property_path as $key) {
+      if ($result[$key]) {
+        $result = $result[$key];
+      } else {
+        return NULL;
+      }
+    }
+    return $result;
+  }
+  protected function extractResults($doc) {
+    $result_doc = array();
+    foreach ($this->query_params['_source'] as $property) {
+      $property_path = explode('.', $property);
+      if ($value = $this->readProperty($doc['_source'], $property_path)) {
+        $result_doc[implode('__', $property_path)] = is_array($value) ? implode('|', $value) : $value;
+      }
+    }
+    return $result_doc;
+  }
+
   /**
    * {@inheritdoc}
    */
@@ -441,17 +462,7 @@ class ElasticsearchViewsQuery extends QueryPluginBase {
       if (!empty($response['hits']['hits'])) {
         $item_index = 0;
         foreach ($response['hits']['hits'] as $doc) {
-          $result_doc = array();
-          foreach ($doc['_source'] as $field_name => $field_value) {
-            if(is_array($field_value)) {
-              // TODO: Handle this by implementing the Multivalue interface in D8
-              // Handle multivalue with concatenation for now.
-              $result_doc[$field_name] = implode(' | ', $field_value);
-            }else{
-              $result_doc[$field_name] = $field_value;
-            }
-          }
-          $result_doc['_source'] = $doc['_source'];
+          $result_doc = $this->extractResults($doc);
           $result_doc['index'] = $item_index;
 
           $view->result[] = new ResultRow($result_doc);

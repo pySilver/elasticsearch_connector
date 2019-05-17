@@ -165,9 +165,11 @@ function _elasticsearch_connector_views_handle_fields($base_table, &$data, $fiel
       }
 
       if ($set) {
-        $data[$base_table][$base_field_name . $field_name] = array(
+        $key = str_replace('.', '__', $base_field_name . $field_name);
+        $data[$base_table][$key] = array(
           'title' => $base_field_name . $field_name,
           'help' => $base_field_name . $field_name,
+          'real field' => $base_field_name . $field_name,
           'field' => array(
             'id' => $field_handler,
             'click sortable' => TRUE,
@@ -183,6 +185,10 @@ function _elasticsearch_connector_views_handle_fields($base_table, &$data, $fiel
             'id' => 'standard',
           ),
         );
+        // N: "format" required by elasticsearch_connector_views_markup field handler. Make configurable?
+        if ($field_handler === 'elasticsearch_connector_views_markup') {
+          $data[$base_table][$key]['field']['format'] = 'full_html';
+        }
       }
     }
   }
