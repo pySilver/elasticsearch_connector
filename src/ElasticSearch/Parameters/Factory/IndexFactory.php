@@ -252,9 +252,9 @@ class IndexFactory {
    * @param string $field_type
    * @param mixed $raw
    *
-   * @return string
+   * @return mixed
    */
-  protected static function getFieldValue($field_type, $raw): string {
+  protected static function getFieldValue($field_type, $raw) {
     switch ($field_type) {
       case 'string':
         $value = (string) $raw;
