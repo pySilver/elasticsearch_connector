@@ -172,8 +172,7 @@ class IndexFactory {
 
     $properties = [
       'id' => [
-        'type'  => 'keyword',
-        'index' => 'true',
+        'type' => 'keyword',
       ],
     ];
 
