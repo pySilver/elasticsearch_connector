@@ -6,7 +6,6 @@
  */
 
 use Drupal\Component\Render\FormattableMarkup;
-use Drupal\Component\Utility\NestedArray;
 use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\IndexFactory;
 use Drupal\elasticsearch_connector\Entity\Cluster;
 use Drupal\search_api\Entity\Index;
@@ -218,14 +217,11 @@ function elasticsearch_connector_views_views_data_alter(array &$data) {
       // Swap fields ElasticSearch -> Search API.
       if (preg_match($es_index_regex, $key)) {
         if (isset($data[$index_name])) {
-          $data[$index_name . '_elasticsearch'] = $fields;
-//          $table = $data[$index_name]['table'];
+          $table = $data[$index_name]['table'];
 
-//          $data[$index_name] = NestedArray::mergeDeep($data[$index_name], $fields);
-
-//          $data[$index_name]                           = $fields;
-//          $data[$index_name]['table']['base']['title'] = $table['base']['title'];
-//          $data[$index_name]['table']['base']['help']  = $table['base']['help'];
+          $data[$index_name]                           = $fields;
+          $data[$index_name]['table']['base']['title'] = $table['base']['title'];
+          $data[$index_name]['table']['base']['help']  = $table['base']['help'];
         }
         continue 2;
       }
