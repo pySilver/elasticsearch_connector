@@ -70,7 +70,7 @@ class IndexFactory {
 
     // Allow other modules to alter index config before we create it.
     $dispatcher        = \Drupal::service('event_dispatcher');
-    $prepareIndexEvent = new PrepareIndexEvent($indexConfig, $indexName);
+    $prepareIndexEvent = new PrepareIndexEvent($indexConfig, $indexName, $index);
     $event             = $dispatcher->dispatch(PrepareIndexEvent::PREPARE_INDEX, $prepareIndexEvent);
     $indexConfig       = $event->getIndexConfig();
 
@@ -215,7 +215,7 @@ class IndexFactory {
 
     // Allow other modules to alter index mapping before we create it.
     $dispatcher               = \Drupal::service('event_dispatcher');
-    $prepareIndexMappingEvent = new PrepareIndexMappingEvent($params, $params['index']);
+    $prepareIndexMappingEvent = new PrepareIndexMappingEvent($params, $params['index'], $index);
     $event                    = $dispatcher->dispatch(PrepareIndexMappingEvent::PREPARE_INDEX_MAPPING, $prepareIndexMappingEvent);
     $params                   = $event->getIndexMappingParams();
 
@@ -318,6 +318,8 @@ class IndexFactory {
     if (count($field->getValues()) > 1) {
       $is_list = TRUE;
     }
+
+    // TODO: Add event here? so we can consult "list/not list against something else"
 
     return $is_list;
   }
