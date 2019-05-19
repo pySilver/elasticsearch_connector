@@ -6,9 +6,6 @@
  */
 
 use Drupal\Component\Render\FormattableMarkup;
-use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\IndexFactory;
-use Drupal\elasticsearch_connector\Entity\Cluster;
-use Drupal\search_api\Entity\Index;
 
 /**
  * Implements hook_views_data().
@@ -191,39 +188,6 @@ function _elasticsearch_connector_views_handle_fields($base_table, &$data, $fiel
         if ($field_handler === 'elasticsearch_connector_views_markup') {
           $data[$base_table][$key]['field']['format'] = 'full_html';
         }
-      }
-    }
-  }
-}
-
-/**
- * Implements hook_views_data_alter().
- *
- * Replace all fields in search_api index with elasticsearch fields to support
- * custom data types.
- */
-function elasticsearch_connector_views_views_data_alter(array &$data) {
-  /** @var \Drupal\search_api\IndexInterface $index */
-  foreach (Index::loadMultiple() as $index) {
-    $dependencies = $index->getDependencies()['module'];
-    if (!in_array('elasticsearch_connector', $dependencies, TRUE)) {
-      continue;
-    }
-    $index_name     = 'search_api_index_' . $index->id();
-    $es_index       = IndexFactory::index($index, TRUE);
-    $es_index_regex = sprintf('/elsv__[\w]+__%s__%s/', $es_index['index'], $es_index['type']);
-
-    foreach ($data as $key => $fields) {
-      // Swap fields ElasticSearch -> Search API.
-      if (preg_match($es_index_regex, $key)) {
-        if (isset($data[$index_name])) {
-          $table = $data[$index_name]['table'];
-
-          $data[$index_name]                           = $fields;
-          $data[$index_name]['table']['base']['title'] = $table['base']['title'];
-          $data[$index_name]['table']['base']['help']  = $table['base']['help'];
-        }
-        continue 2;
       }
     }
   }
