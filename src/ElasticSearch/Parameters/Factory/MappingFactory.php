@@ -79,6 +79,12 @@ class MappingFactory {
 
       case 'object':
         $mappingConfig = [
+          'type' => 'object',
+        ];
+        break;
+
+      case 'nested_object':
+        $mappingConfig = [
           'type' => 'nested',
         ];
         break;
