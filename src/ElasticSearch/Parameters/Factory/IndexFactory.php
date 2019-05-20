@@ -126,22 +126,20 @@ class IndexFactory {
         $field_type = $field->getType();
 
         // Set to list only if list.
-        $value = NULL;
-        if (self::isFieldList($index, $field)) {
+        $value   = NULL;
+        $is_list = self::isFieldList($index, $field);
+        if ($is_list) {
           $value = [];
         }
-        if (!empty($field->getValues())) {
-          foreach ($field->getValues() as $val) {
-
-            if (self::isFieldList($index, $field)) {
-              $value[] = self::getFieldValue($field_type, $val);
-            }
-            else {
-              $value = self::getFieldValue($field_type, $val);
-            }
+        foreach ($field->getValues() as $val) {
+          if ($is_list) {
+            $value[] = self::getFieldValue($field_type, $val);
           }
-          $data[$field->getFieldIdentifier()] = $value;
+          else {
+            $value = self::getFieldValue($field_type, $val);
+          }
         }
+        $data[$field->getFieldIdentifier()] = $value;
       }
       $params['body'][] = ['index' => ['_id' => $id]];
       $params['body'][] = $data;
@@ -319,7 +317,9 @@ class IndexFactory {
       $is_list = TRUE;
     }
 
-    // TODO: Add event here? so we can consult "list/not list against something else"
+    if ($field_definition->getDataType() === 'array') {
+      $is_list = TRUE;
+    }
 
     return $is_list;
   }
