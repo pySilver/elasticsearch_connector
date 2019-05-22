@@ -679,6 +679,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       }
 
       // Allow modules to alter the Elastic Search Results.
+      $this->moduleHandler->alter('elasticsearch_connector_search_results', $results, $query, $response);
       $this->postQuery($results, $query, $response);
 
       return $results;
