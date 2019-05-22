@@ -437,7 +437,7 @@ class SearchBuilder {
             // TODO: proper exception.
             throw new \Exception(
               t(
-                ':field_id Undefined field ! Incorrect filter criteria is using for searching!',
+                ':field_id Undefined field! Incorrect filter criteria is using for searching!',
                 [':field_id' => $field_id]
               )
             );
