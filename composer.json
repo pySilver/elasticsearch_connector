@@ -5,7 +5,8 @@
   "homepage": "https://www.drupal.org/project/elasticsearch_connector",
   "require": {
     "nodespark/des-connector": "6.x-dev",
-    "makinacorpus/php-lucene": "^1.0.2"
+    "makinacorpus/php-lucene": "^1.0.2",
+    "illuminate/support": "~5.8.18"
   },
   "repositories": {
     "drupal": {
