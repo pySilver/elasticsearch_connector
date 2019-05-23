@@ -2,6 +2,7 @@
 
 namespace Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory;
 
+use Drupal\elasticsearch_connector\Event\PrepareDocumentIndexEvent;
 use Drupal\field\FieldConfigInterface;
 use Drupal\search_api\IndexInterface;
 use Drupal\search_api\Item\FieldInterface;
@@ -39,7 +40,7 @@ class IndexFactory {
    */
   public static function index(IndexInterface $index, $with_type = FALSE) {
     $params          = [];
-    $params['index'] = IndexFactory::getIndexName($index);
+    $params['index'] = self::getIndexName($index);
 
     if ($with_type) {
       $params['type'] = $index->id();
@@ -57,7 +58,7 @@ class IndexFactory {
    * @return array
    */
   public static function create(IndexInterface $index) {
-    $indexName   = IndexFactory::getIndexName($index);
+    $indexName   = self::getIndexName($index);
     $indexConfig = [
       'index' => $indexName,
       'body'  => [
@@ -86,7 +87,7 @@ class IndexFactory {
    * @return array
    */
   public static function bulkDelete(IndexInterface $index, array $ids) {
-    $params = IndexFactory::index($index, TRUE);
+    $params = self::index($index, TRUE);
     foreach ($ids as $id) {
       $params['body'][] = [
         'delete' => [
@@ -115,34 +116,59 @@ class IndexFactory {
    * @throws \Drupal\search_api\SearchApiException
    */
   public static function bulkIndex(IndexInterface $index, array $items) {
-    $params = IndexFactory::index($index, TRUE);
+    $dispatcher = \Drupal::service('event_dispatcher');
+    $params     = self::index($index, TRUE);
 
     foreach ($items as $id => $item) {
       $data = [
         '_language' => $item->getLanguage(),
       ];
+
       /** @var \Drupal\search_api\Item\FieldInterface $field */
       foreach ($item as $name => $field) {
         $field_type = $field->getType();
-
-        // Set to list only if list.
-        $value   = NULL;
-        $is_list = self::isFieldList($index, $field);
-        if ($is_list) {
-          $value = [];
+        $values     = [];
+        foreach ($field->getValues() as $value) {
+          $values[] = self::getFieldValue($field_type, $value);
         }
-        foreach ($field->getValues() as $val) {
-          if ($is_list) {
-            $value[] = self::getFieldValue($field_type, $val);
-          }
-          else {
-            $value = self::getFieldValue($field_type, $val);
-          }
-        }
-        $data[$field->getFieldIdentifier()] = $value;
+        $data[$field->getFieldIdentifier()] = $values;
       }
+
+//      /** @var \Drupal\search_api\Item\FieldInterface $field */
+//      foreach ($item as $name => $field) {
+//        $field_type = $field->getType();
+//
+//        // Set to list only if list.
+//        $value   = NULL;
+//        $is_list = self::isFieldList($index, $field);
+//        if ($is_list) {
+//          $value = [];
+//        }
+//        foreach ($field->getValues() as $val) {
+//          if ($is_list) {
+//            $value[] = self::getFieldValue($field_type, $val);
+//          }
+//          else {
+//            $value = self::getFieldValue($field_type, $val);
+//          }
+//        }
+//        $data[$field->getFieldIdentifier()] = $value;
+//      }
+
+      // Allow other modules to alter document before we create it.
+      $documentIndexEvent = new PrepareDocumentIndexEvent(
+        $data,
+        $params['index'],
+        $index
+      );
+
+      $event = $dispatcher->dispatch(
+        PrepareDocumentIndexEvent::PREPARE_DOCUMENT_INDEX,
+        $documentIndexEvent
+      );
+
       $params['body'][] = ['index' => ['_id' => $id]];
-      $params['body'][] = $data;
+      $params['body'][] = $event->getDocument();
     }
 
     return $params;
@@ -166,7 +192,7 @@ class IndexFactory {
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public static function mapping(IndexInterface $index) {
-    $params = IndexFactory::index($index, TRUE);
+    $params = self::index($index, TRUE);
 
     $properties = [
       'id' => [
@@ -235,12 +261,10 @@ class IndexFactory {
     $options       = \Drupal::database()->getConnectionOptions();
     $site_database = $options['database'];
 
-    $index_machine_name = is_string($index) ? $index : $index->id();
-
     return strtolower(preg_replace(
       '/[^A-Za-z0-9_]+/',
       '',
-      'elasticsearch_index_' . $site_database . '_' . $index_machine_name
+      'elasticsearch_index_' . $site_database . '_' . $index->id()
     ));
   }
 
@@ -248,14 +272,21 @@ class IndexFactory {
    * Helper function. Returns the elasticsearch value for a given field.
    *
    * @param string $field_type
+   *   Field data type.
    * @param mixed $raw
+   *   Field value.
    *
    * @return mixed
+   *   Field value optionally casted to specific type.
    */
   protected static function getFieldValue($field_type, $raw) {
+    $value = $raw;
+
     switch ($field_type) {
       case 'string':
-        $value = (string) $raw;
+        if (!is_array($raw)) {
+          $value = (string) $raw;
+        }
         break;
 
       case 'text':
@@ -273,10 +304,8 @@ class IndexFactory {
       case 'decimal':
         $value = (float) $raw;
         break;
-
-      default:
-        $value = $raw;
     }
+
     return $value;
   }
 
@@ -311,13 +340,9 @@ class IndexFactory {
       }
     }
 
-    // If there are > 1 value in a field, we can assume
-    // it's intentionally a list.
-    if (count($field->getValues()) > 1) {
-      $is_list = TRUE;
-    }
-
-    if ($field_definition->getDataType() === 'array') {
+    // Inspect values to determine if this is an intentional array.
+    $values = $field->getValues();
+    if (count($values) > 1 || (!empty($values) && is_array(array_shift($values)))) {
       $is_list = TRUE;
     }
 
