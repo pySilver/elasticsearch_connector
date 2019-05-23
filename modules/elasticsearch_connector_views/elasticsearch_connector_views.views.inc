@@ -217,6 +217,7 @@ function elasticsearch_connector_search_api_views_field_handler_mapping_alter(ar
  * Pushes flattened object fields into Search API Index.
  */
 function elasticsearch_connector_views_views_data_alter(array &$data) {
+  return;
   $search_api_mapping = _search_api_views_handler_mapping();
 
   /** @var \Drupal\search_api\IndexInterface $index */
