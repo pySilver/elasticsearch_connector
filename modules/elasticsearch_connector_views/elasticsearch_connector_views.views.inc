@@ -6,8 +6,6 @@
  */
 
 use Drupal\Component\Render\FormattableMarkup;
-use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\IndexFactory;
-use Drupal\search_api\Entity\Index;
 
 /**
  * Implements hook_views_data().
@@ -207,109 +205,4 @@ function elasticsearch_connector_search_api_views_field_handler_mapping_alter(ar
     'id' => 'elasticsearch_connector_views_markup',
     'format' => 'full_html',
   ];
-}
-
-
-
-/**
- * Implements hook_views_data_alter().
- *
- * Pushes flattened object fields into Search API Index.
- */
-function elasticsearch_connector_views_views_data_alter(array &$data) {
-  return;
-  $search_api_mapping = _search_api_views_handler_mapping();
-
-  /** @var \Drupal\search_api\IndexInterface $index */
-  foreach (Index::loadMultiple() as $index) {
-    $dependencies = $index->getDependencies()['module'];
-    if (!in_array('elasticsearch_connector', $dependencies, TRUE)) {
-      continue;
-    }
-
-    $index_name = 'search_api_index_' . $index->id();
-    if (!isset($data[$index_name])) {
-      continue;
-    }
-
-    $es_index       = IndexFactory::index($index, TRUE);
-    $es_index_regex = sprintf('/elsv__[\w]+__%s__%s/', $es_index['index'], $es_index['type']);
-
-    // Replace field handler for object fields.
-    foreach ($data as $table_name => $table_fields) {
-      if (!preg_match($es_index_regex, $table_name)) {
-        continue;
-      }
-
-      foreach ($table_fields as $field_name => $field) {
-        // Does not seem to be part of the object field.
-        if ($field_name === 'table' ||
-            !isset($field['real field']) ||
-            strpos($field_name, '__') === FALSE ||
-            strpos($field['real field'], '.') === FALSE
-        ) {
-          continue;
-        }
-
-        $object_name = explode('__', $field_name)[0];
-
-        $type         = NULL;
-        $new_field_id = 'search_api';
-        switch ($field['filter']['id']) {
-          case 'elasticsearch_connector_views_string':
-            $type = 'string';
-            break;
-
-          case 'elasticsearch_connector_views_numeric':
-            $type         = 'decimal';
-            $new_field_id = 'search_api_numeric';
-            break;
-
-          case 'elasticsearch_connector_views_fulltext_filter':
-            $type = 'text';
-            break;
-
-          case 'elasticsearch_connector_views_date':
-            $type         = 'date';
-            $new_field_id = 'search_api_date';
-            break;
-
-          case 'elasticsearch_connector_views_boolean':
-            $type         = 'boolean';
-            $new_field_id = 'search_api_boolean';
-            break;
-        }
-
-        $new_field          = [];
-        $new_field['field'] = [];
-        $new_field['title'] = $field['title'];
-        $new_field['help']  = t(
-          'Property of @obj object field.', ['@obj' => $object_name]
-        );
-
-        $new_field['real field'] = $field['real field'];
-        $new_field['group']      = t(
-          'Index @name', ['@name' => $index->label()]
-        );
-
-        $new_field['field']['id']               = $new_field_id;
-        $new_field['field']['title']            = $new_field['title'];
-        $new_field['field']['real field']       = $new_field['real field'];
-        $new_field['field']['search_api field'] = $field_name;
-
-        if (isset($search_api_mapping[$type])) {
-          $new_field += $search_api_mapping[$type];
-          $new_field['filter']['allow empty'] = TRUE;
-        }
-
-        // Inject field into search_api table:
-        $data[$index_name][$field_name] = $new_field;
-
-        // Update description for root-object field:
-        $data[$index_name][$object_name]['help'] = t(
-          'Complex @obj field.', ['@obj' => $object_name]
-        );
-      }
-    }
-  }
 }
