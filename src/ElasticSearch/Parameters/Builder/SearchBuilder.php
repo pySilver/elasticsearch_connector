@@ -3,7 +3,6 @@
 namespace Drupal\elasticsearch_connector\ElasticSearch\Parameters\Builder;
 
 use Drupal\Component\Utility\Html;
-use Drupal\Component\Utility\Unicode;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\FilterFactory;
 use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\IndexFactory;
@@ -342,8 +341,6 @@ class SearchBuilder {
 
     // Loop over the keys.
     foreach ($keys as $key) {
-      $element = NULL;
-
       $element = (new TermQuery())
         ->setValue($key);
       if ($fuzzy) {
@@ -358,7 +355,6 @@ class SearchBuilder {
     return $query;
   }
 
-
   /**
    * Helper function that returns sort for query in search.
    *
@@ -372,7 +368,7 @@ class SearchBuilder {
     $sort = [];
     $query_full_text_fields = $this->index->getFulltextFields();
     foreach ($this->query->getSorts() as $field_id => $direction) {
-      $direction = Unicode::strtolower($direction);
+      $direction = mb_strtolower($direction);
 
       if ($field_id === 'search_api_relevance') {
         $sort['_score'] = $direction;
@@ -383,10 +379,10 @@ class SearchBuilder {
       elseif (isset($index_fields[$field_id])) {
         if (in_array($field_id, $query_full_text_fields)) {
           // Set the field that has not been analyzed for sorting.
-          $sort[$field_id . '.keyword'] = $direction;
+          $sort[self::getNestedPath($field_id) . '.keyword'] = $direction;
         }
         else {
-          $sort[$field_id] = $direction;
+          $sort[self::getNestedPath($field_id)] = $direction;
         }
       }
       else {
@@ -396,6 +392,22 @@ class SearchBuilder {
 
     }
     return $sort;
+  }
+
+  /**
+   * Generate nested path for complex fields.
+   *
+   * Nested objects are denoted with __ as path separator due to
+   * Field machine name limitations.
+   *
+   * @param string $field_id
+   *   Original field id.
+   *
+   * @return string
+   *   Nested field id, if required.
+   */
+  public static function getNestedPath(string $field_id): string {
+    return str_replace('__', '.', $field_id);
   }
 
   /**
@@ -463,6 +475,9 @@ class SearchBuilder {
                 break;
             }
           }
+
+          // Field might be nested object type:
+          $condition->setField(self::getNestedPath($condition->getField()));
 
           // Check field.
           $filter = FilterFactory::filterFromCondition($condition);
