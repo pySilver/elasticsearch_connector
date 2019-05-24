@@ -2,6 +2,8 @@
 
 namespace Drupal\elasticsearch_connector\Utility;
 
+use Illuminate\Support\Arr;
+
 /**
  * Class Utility.
  *
@@ -10,55 +12,37 @@ namespace Drupal\elasticsearch_connector\Utility;
 class Utility {
 
   /**
-   * Flatten any key-value array.
+   * Flatten a multi-dimensional associative array with dots.
    *
-   * @param array $input
+   * @param array $array
    *   Input array.
-   * @param string $prefix
-   *   Prefix/separator.
+   * @param string $prepend
+   *   Optional prefix.
    * @param string $separator
    *   Path separator.
    * @param bool $skip_sequential
-   *   Defines whether sequential arrays should be processed.
+   *   Keep traversing sequential descendants.
    *
    * @return array
-   *   Result flat array.
+   *   Flat array.
    */
-  public static function flattenArray(
-    array $input,
-    string $prefix = '',
-    string $separator = '.',
-    bool $skip_sequential = TRUE
-  ): array {
-    $result = [];
+  public static function dot(array $array, $prepend = '', $separator = '.', $skip_sequential = TRUE): array {
+    $results = [];
 
-    if ($skip_sequential && !self::isArrayAssoc($input)) {
-      return $input;
+    if ($skip_sequential && !Arr::isAssoc($array)) {
+      return $results;
     }
 
-    foreach ($input as $key => $value) {
-      if (is_array($value) && (!$skip_sequential || self::isArrayAssoc($value))) {
-        $result += self::flattenArray($value, $prefix . $separator . $key . $separator);
+    foreach ($array as $key => $value) {
+      if (is_array($value) && !empty($value) && (!$skip_sequential || Arr::isAssoc($value))) {
+        $results = array_merge($results, static::dot($value, $prepend . $key . $separator, $separator, $skip_sequential));
       }
       else {
-        $result[$prefix . $separator . $key] = $value;
+        $results[$prepend . $key] = $value;
       }
     }
 
-    return $result;
-  }
-
-  /**
-   * Checks if input is associative array.
-   *
-   * @param array $input
-   *   Input array.
-   *
-   * @return bool
-   *   Check result
-   */
-  public static function isArrayAssoc(array $input): bool {
-    return array_keys($input) !== range(0, count($input) - 1);
+    return $results;
   }
 
 }
