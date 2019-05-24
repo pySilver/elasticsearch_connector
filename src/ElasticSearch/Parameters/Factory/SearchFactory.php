@@ -41,6 +41,7 @@ class SearchFactory {
    */
   public static function parseResult(QueryInterface $query, array $response) {
     $index = $query->getIndex();
+    $fields = $index->getFields();
 
     // Set up the results array.
     $results = $query->getResults();
@@ -55,37 +56,32 @@ class SearchFactory {
         $result_item = $fields_helper->createItem($index, $result['_id']);
         $result_item->setScore($result['_score']);
 
-        // Set each item in _source as a field in Search API.
-        foreach ($result['_source'] as $elasticsearch_property_id => $elasticsearch_property) {
-          $is_assoc_property = is_array($elasticsearch_property) && Utility::isArrayAssoc($elasticsearch_property);
-
-          // Unwrap objects to flat fields.
-          $index_field = $index->getField($elasticsearch_property_id);
-          if ($is_assoc_property && $index_field !== NULL && $index_field->getType() === 'object') {
-            $flatten_fields = Utility::flattenArray($elasticsearch_property, $elasticsearch_property_id, '.');
-            foreach ($flatten_fields as $flatten_field_key => $flatten_field_value) {
-              $flat_field = $fields_helper->createField($index, $flatten_field_key, ['property_path' => $flatten_field_key]);
-
-              if (is_scalar($flatten_field_value) || (is_array($flatten_field_value) && Utility::isArrayAssoc($flatten_field_value))) {
-                $flat_field->addValue($flatten_field_value);
-              }
-              else {
-                $flat_field->setValues((array) $flatten_field_value);
-              }
-
-              $result_item->setField($flatten_field_key, $flat_field);
-            }
-          }
-
-          $field = $fields_helper->createField($index, $elasticsearch_property_id, ['property_path' => $elasticsearch_property_id]);
-          if ($is_assoc_property) {
-            $field->addValue($elasticsearch_property);
+        // Nested objects needs to be unwrapped before passing into fields.
+        $flatten_result = Utility::dot($result['_source'], '', '__');
+        foreach ($flatten_result as $result_key => $result_value) {
+          if (isset($fields[$result_key])) {
+            $field = clone $fields[$result_key];
           }
           else {
-            $field->setValues((array) $elasticsearch_property);
+            $field = $fields_helper->createField($index, $result_key);
           }
+          $field->setValues((array) $result_value);
+          $result_item->setField($result_key, $field);
+        }
 
-          $result_item->setField($elasticsearch_property_id, $field);
+        // Preserve complex fields defined in index as unwrapped.
+        foreach ($result['_source'] as $result_key => $result_value) {
+          if (
+            isset($fields[$result_key]) &&
+            in_array($fields[$result_key]->getType(), [
+              'object',
+              'nested_object',
+            ])
+          ) {
+            $field = clone $fields[$result_key];
+            $field->setValues((array) $result_value);
+            $result_item->setField($result_key, $field);
+          }
         }
 
         $results->addResultItem($result_item);
