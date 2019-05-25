@@ -6,7 +6,9 @@
   "require": {
     "nodespark/des-connector": "6.x-dev",
     "makinacorpus/php-lucene": "^1.0.2",
-    "illuminate/support": "~5.8.18"
+    "illuminate/support": "~5.8.18",
+    "ongr/elasticsearch-dsl": "^6.0.3",
+    "ruflin/elastica": "^6.1.1"
   },
   "repositories": {
     "drupal": {
