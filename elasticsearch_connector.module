@@ -5,6 +5,7 @@
  * Provides hook implementations and functions accessible from other modules.
  */
 
+use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Routing\RouteMatchInterface;
 use \Elasticsearch\Client;
 
@@ -177,7 +178,7 @@ function _elasticsearch_check_if_index_locked($cluster, $index) {
  * Implements hook_elasticsearch_edit_lock().
  */
 function elasticsearch_connector_elasticsearch_edit_lock($type, $cluster, $index = NULL) {
-  if ($type == 'cluster' && $cluster->cluster_id == elasticsearch_connector_get_default()) {
+  if ($type === 'cluster' && $cluster->cluster_id == elasticsearch_connector_get_default()) {
     return TRUE;
   }
 
@@ -562,4 +563,87 @@ function elasticsearch_connector_site_hash() {
 function elasticsearch_connector_search_api_field_type_mapping_alter(array &$mapping) {
   $mapping['object'] = 'object';
   $mapping['nested_object'] = 'object';
+}
+
+/**
+ * Default index settings
+ *
+ * @return array
+ */
+function elasticsearch_connector_default_index_third_party_settings() {
+  return [
+    'index'   => [
+      'number_of_shards'   => 5,
+      'number_of_replicas' => 1,
+      'refresh_interval'   => 1,
+    ],
+  ];
+}
+
+/**
+ * Implements hook_form_FORM_alter() on behalf of
+ * elasticsearch_connector.module.
+ *
+ * @see \Drupal\search_api\Form\IndexForm method buildForm at
+ *   /core/lib/Drupal/Core/Entity/EntityForm.php
+ */
+function elasticsearch_connector_form_search_api_index_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  // We need to restrict by form ID here because this function is also called
+  // via hook_form_BASE_FORM_ID_alter (which is wrong, e.g. in the case of the
+  // form ID search_api_field_config).
+  if (!in_array($form_id, [
+    'search_api_index_form',
+    'search_api_index_edit_form',
+  ])) {
+    return;
+  }
+
+  /** @var \Drupal\search_api\IndexInterface $index */
+  $index    = $form_state->getFormObject()->getEntity();
+  $settings = [];
+  if (!$index->isNew()) {
+    $settings = $index->getThirdPartySettings('elasticsearch_connector');
+  }
+  $settings = array_merge(
+    elasticsearch_connector_default_index_third_party_settings(),
+    $settings
+  );
+
+  $form['third_party_settings']['elasticsearch_connector'] = [
+    '#tree'      => TRUE,
+    '#type'      => 'details',
+    '#title'     => t('Elasticsearch Index Settings'),
+    '#collapsed' => TRUE,
+  ];
+
+  $form['third_party_settings']['elasticsearch_connector']['index']['number_of_shards'] = [
+    '#type'          => 'number',
+    '#title'         => t('Number of shards'),
+    '#required'      => TRUE,
+    '#min'           => 1,
+    '#max'           => 100,
+    '#default_value' => $settings['index']['number_of_shards'],
+    '#description'   => t('Enter the number of shards for the index.'),
+  ];
+
+  $form['third_party_settings']['elasticsearch_connector']['index']['number_of_replicas'] = [
+    '#type'          => 'number',
+    '#title'         => t('Number of replica'),
+    '#required'      => TRUE,
+    '#min'           => 1,
+    '#max'           => 100,
+    '#default_value' => $settings['index']['number_of_replicas'],
+    '#description'   => t('Enter the number of replica shards for the index.'),
+  ];
+
+  $form['third_party_settings']['elasticsearch_connector']['index']['refresh_interval'] = [
+    '#type'          => 'number',
+    '#title'         => t('Refresh interval'),
+    '#required'      => TRUE,
+    '#field_suffix'  => 's',
+    '#min'           => -1,
+    '#default_value' => $settings['index']['refresh_interval'],
+    '#description'   => t('How often to perform a refresh operation, which makes recent changes to the index visible to search. '),
+  ];
+
 }

@@ -1,20 +1,18 @@
 <?php
-/**
- * @file
- */
 
 namespace Drupal\elasticsearch_connector\Plugin\search_api\processor;
 
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Plugin\PluginFormInterface;
 use Drupal\elasticsearch_connector\Plugin\search_api\backend\SearchApiElasticsearchBackend;
-use Drupal\search_api\Annotation\SearchApiProcessor;
 use Drupal\search_api\IndexInterface;
 use Drupal\search_api\Plugin\PluginFormTrait;
 use Drupal\search_api\Processor\ProcessorPluginBase;
 use Drupal\search_api\Query\QueryInterface;
 
 /**
+ * Exclude source fields.
+ *
  * @SearchApiProcessor(
  *   id = "exclude_source_fields",
  *   label = @Translation("Exclude source fields"),
@@ -28,6 +26,9 @@ class ExcludeSourceFields extends ProcessorPluginBase implements PluginFormInter
 
   use PluginFormTrait;
 
+  /**
+   * {@inheritdoc}
+   */
   public function buildConfigurationForm(
     array $form,
     FormStateInterface $form_state
@@ -51,6 +52,9 @@ class ExcludeSourceFields extends ProcessorPluginBase implements PluginFormInter
     return $form;
   }
 
+  /**
+   * {@inheritdoc}
+   */
   public function preprocessSearchQuery(QueryInterface $query) {
     $excluded_fields = array_filter($this->configuration['fields']);
 
@@ -60,8 +64,12 @@ class ExcludeSourceFields extends ProcessorPluginBase implements PluginFormInter
     );
   }
 
+  /**
+   * {@inheritdoc}
+   */
   public static function supportsIndex(IndexInterface $index) {
     $backend = $index->getServerInstance()->getBackend();
     return $backend instanceof SearchApiElasticsearchBackend;
   }
+
 }

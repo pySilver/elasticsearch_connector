@@ -42,13 +42,14 @@ use Drupal\Core\Config\Entity\ConfigEntityBase;
 class Cluster extends ConfigEntityBase {
 
   // Active status.
-  const ELASTICSEARCH_CONNECTOR_STATUS_ACTIVE = 1;
+  public const ELASTICSEARCH_CONNECTOR_STATUS_ACTIVE = 1;
 
   // Inactive status.
-  const ELASTICSEARCH_CONNECTOR_STATUS_INACTIVE = 0;
+  public const ELASTICSEARCH_CONNECTOR_STATUS_INACTIVE = 0;
 
   // Default connection timeout in seconds.
-  const ELASTICSEARCH_CONNECTOR_DEFAULT_TIMEOUT = 3;
+  public const ELASTICSEARCH_CONNECTOR_DEFAULT_TIMEOUT = 3;
+
   /**
    * The cluster machine name.
    *
@@ -95,38 +96,38 @@ class Cluster extends ConfigEntityBase {
    * {@inheritdoc}
    */
   public function id() {
-    return isset($this->cluster_id) ? $this->cluster_id : NULL;
+    return $this->cluster_id ?? NULL;
   }
-
 
   /**
    * Get the full base URL of the cluster, including any authentication.
    *
    * @return string
+   *   Cluster URL
    */
-  public function getSafeUrl() {
+  public function getSafeUrl(): ?string {
     $options = $this->options;
     $url_parsed = parse_url($this->url);
     if ($options['use_authentication']) {
       return $url_parsed['scheme'] . '://'
-      . $options['username'] . ':****@'
-      . $url_parsed['host']
-      . (isset($url_parsed['port']) ? ':' . $url_parsed['port'] : '');
+             . $options['username'] . ':****@'
+             . $url_parsed['host']
+             . (isset($url_parsed['port']) ? ':' . $url_parsed['port'] : '');
     }
-    else {
-      return $url_parsed['scheme'] . '://'
-      . (isset($url_parsed['user']) ? $url_parsed['user'] . ':****@' : '')
-      . $url_parsed['host']
-      . (isset($url_parsed['port']) ? ':' . $url_parsed['port'] : '');
-    }
+
+    return $url_parsed['scheme'] . '://'
+           . (isset($url_parsed['user']) ? $url_parsed['user'] . ':****@' : '')
+           . $url_parsed['host']
+           . (isset($url_parsed['port']) ? ':' . $url_parsed['port'] : '');
   }
 
   /**
    * Get the raw url.
    *
    * @return string
+   *   Cluster URL
    */
-  public function getRawUrl() {
+  public function getRawUrl(): ?string {
     return $this->url;
   }
 

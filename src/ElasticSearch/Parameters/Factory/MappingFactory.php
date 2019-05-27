@@ -3,7 +3,6 @@
 namespace Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory;
 
 use Drupal\search_api\Item\FieldInterface;
-use Elasticsearch\Common\Exceptions\ElasticsearchException;
 use Drupal\elasticsearch_connector\Event\PrepareMappingEvent;
 
 /**
@@ -14,7 +13,8 @@ class MappingFactory {
   /**
    * Helper function. Get the elasticsearch mapping for a field.
    *
-   * @param FieldInterface $field
+   * @param \Drupal\search_api\Item\FieldInterface $field
+   *   Field.
    *
    * @return array|null
    *   Array of settings when a known field type is provided. Null otherwise.

@@ -14,8 +14,8 @@ use Drupal\search_api\Processor\ProcessorPluginBase;
  * @SearchApiProcessor(
  *   id = "nested_entity",
  *   label = @Translation("Nested Entity processor"),
- *   description = @Translation("For related entities linked as Object type, will nest the loaded entity properties on the related field."),
- *   stages = {
+ *   description = @Translation("For related entities linked as Object type,
+ *   will nest the loaded entity properties on the related field."), stages = {
  *     "alter_items" = 0,
  *   }
  * )
@@ -61,7 +61,7 @@ class NestedEntity extends ProcessorPluginBase {
 
         // Make sure it exists.
         if (empty($fields[$entity_field['property']])) {
-         continue;
+          continue;
         }
         $field = $fields[$entity_field['property']];
 
@@ -85,8 +85,8 @@ class NestedEntity extends ProcessorPluginBase {
    * @param string $entity_type_id
    *   The entity type id.
    *
-   * @return
-   *    An array of entity references on the supplied entity including:
+   * @return array
+   *   An array of entity references on the supplied entity including:
    *    - property
    *    - type
    */
@@ -112,7 +112,7 @@ class NestedEntity extends ProcessorPluginBase {
 
       $related_entity_properties[] = [
         'property' => $name,
-        'type' => $property->getSetting('target_type'),
+        'type'     => $property->getSetting('target_type'),
       ];
     }
 
@@ -129,7 +129,7 @@ class NestedEntity extends ProcessorPluginBase {
   protected function exportEntity($entity) {
     $values = [];
 
-    if (empty($entity) || !method_exists($entity, 'getFields')) {
+    if ($entity === NULL || !method_exists($entity, 'getFields')) {
       return $values;
     }
 
@@ -160,4 +160,5 @@ class NestedEntity extends ProcessorPluginBase {
     }
     return $values;
   }
+
 }

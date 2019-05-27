@@ -56,9 +56,8 @@ class ClientManagerTest extends UnitTestCase {
     $cluster->options['use_authentication'] = TRUE;
     $cluster->options['username'] = 'Tom';
     $cluster->options['password'] = 'Waits';
-    $cluster->options['authentication_type'] = 'basic_auth';
 
-    $client = $this->clientManager->getClientForCluster($cluster);
+    $client = $this->clientManager->getClient($cluster);
     $this->assertInstanceOf(ClientInterface::class, $client);
   }
 

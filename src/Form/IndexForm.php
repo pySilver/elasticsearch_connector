@@ -4,11 +4,11 @@ namespace Drupal\elasticsearch_connector\Form;
 
 use Drupal\Core\Entity\EntityForm;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\elasticsearch_connector\ClusterManager;
-use Drupal\elasticsearch_connector\ElasticSearch\ClientManagerInterface;
+use Drupal\elasticsearch_connector\ElasticSearch\ClientManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\elasticsearch_connector\Entity\Cluster;
 
 /**
  * Form controller for node type forms.
@@ -16,7 +16,9 @@ use Drupal\elasticsearch_connector\Entity\Cluster;
 class IndexForm extends EntityForm {
 
   /**
-   * @var ClientManagerInterface
+   * Elasticsearch Client Manager.
+   *
+   * @var \Drupal\elasticsearch_connector\ElasticSearch\ClientManager
    */
   private $clientManager;
 
@@ -42,25 +44,35 @@ class IndexForm extends EntityForm {
    *
    * @param \Drupal\Core\Entity\EntityManager|\Drupal\Core\Entity\EntityTypeManagerInterface $entity_manager
    *   The entity type manager.
-   * @param ClientManagerInterface $client_manager
+   * @param \Drupal\elasticsearch_connector\ElasticSearch\ClientManager $client_manager
+   *   Client service.
+   * @param \Drupal\elasticsearch_connector\ClusterManager $cluster_manager
+   *   Cluster manager service.
+   * @param \Drupal\Core\Messenger\MessengerInterface $messenger
+   *   Messenger service.
    */
-  public function __construct(EntityTypeManagerInterface $entity_manager, ClientManagerInterface $client_manager, ClusterManager $cluster_manager) {
+  public function __construct(
+    EntityTypeManagerInterface $entity_manager,
+    ClientManager $client_manager,
+    ClusterManager $cluster_manager,
+    MessengerInterface $messenger
+  ) {
     // Setup object members.
     $this->entityTypeManager = $entity_manager;
     $this->clientManager = $client_manager;
     $this->clusterManager = $cluster_manager;
+    $this->setMessenger($messenger);
   }
 
   /**
-   * @param \Symfony\Component\DependencyInjection\ContainerInterface $container
-   *
-   * @return static
+   * {@inheritdoc}
    */
-  static public function create(ContainerInterface $container) {
-    return new static (
+  public static function create(ContainerInterface $container) {
+    return new static(
       $container->get('entity_type.manager'),
       $container->get('elasticsearch_connector.client_manager'),
-      $container->get('elasticsearch_connector.cluster_manager')
+      $container->get('elasticsearch_connector.cluster_manager'),
+      $container->get('messenger')
     );
   }
 
@@ -79,9 +91,12 @@ class IndexForm extends EntityForm {
    *
    * @return \Drupal\Core\Entity\EntityStorageInterface
    *   An instance of EntityStorageInterface.
+   *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   protected function getClusterStorage() {
-    return $this->getEntityManager()->getStorage('elasticsearch_cluster');
+    return $this->entityTypeManager->getStorage('elasticsearch_cluster');
   }
 
   /**
@@ -89,9 +104,12 @@ class IndexForm extends EntityForm {
    *
    * @return \Drupal\Core\Entity\EntityStorageInterface
    *   An instance of EntityStorageInterface.
+   *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   protected function getIndexStorage() {
-    return $this->getEntityManager()->getStorage('elasticsearch_index');
+    return $this->entityTypeManager->getStorage('elasticsearch_index');
   }
 
   /**
@@ -99,12 +117,15 @@ class IndexForm extends EntityForm {
    *
    * @return array
    *   All clusters
+   *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   protected function getAllClusters() {
-    $options = array();
+    $options = [];
     foreach (
       $this->getClusterStorage()
-           ->loadMultiple() as $cluster_machine_name
+        ->loadMultiple() as $cluster_machine_name
     ) {
       $options[$cluster_machine_name->cluster_id] = $cluster_machine_name;
     }
@@ -119,10 +140,13 @@ class IndexForm extends EntityForm {
    *
    * @return array
    *   All clusters' fields.
+   *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   protected function getClusterField($field) {
     $clusters = $this->getAllClusters();
-    $options = array();
+    $options = [];
     foreach ($clusters as $cluster) {
       $options[$cluster->$field] = $cluster->$field;
     }
@@ -137,12 +161,15 @@ class IndexForm extends EntityForm {
    *
    * @return string
    *   Cluster url.
+   *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   protected function getSelectedClusterUrl($id) {
     $result = NULL;
     $clusters = $this->getAllClusters();
     foreach ($clusters as $cluster) {
-      if ($cluster->cluster_id == $id) {
+      if ($cluster->cluster_id === $id) {
         $result = $cluster->url;
       }
     }
@@ -172,76 +199,80 @@ class IndexForm extends EntityForm {
     // TODO: Provide support for the rest of the dynamic settings.
     // TODO: Make sure that on edit the static settings cannot be changed.
     // @see https://www.elastic.co/guide/en/elasticsearch/reference/current/index-modules.html
-    $form['index'] = array(
-      '#type' => 'value',
+    $form['index'] = [
+      '#type'  => 'value',
       '#value' => $this->entity,
-    );
+    ];
 
-    $form['name'] = array(
-      '#type' => 'textfield',
-      '#title' => t('Index name'),
-      '#required' => TRUE,
+    $form['name'] = [
+      '#type'          => 'textfield',
+      '#title'         => t('Index name'),
+      '#required'      => TRUE,
       '#default_value' => '',
-      '#description' => t('Enter the index name.'),
-      '#weight' => 1,
-    );
+      '#description'   => t('Enter the index name.'),
+      '#weight'        => 1,
+    ];
 
-    $form['index_id'] = array(
-      '#type' => 'machine_name',
-      '#title' => t('Index id'),
+    $form['index_id'] = [
+      '#type'          => 'machine_name',
+      '#title'         => t('Index id'),
       '#default_value' => '',
-      '#maxlength' => 125,
-      '#description' => t('Unique, machine-readable identifier for this Index'),
-      '#machine_name' => array(
-        'exists' => array($this->getIndexStorage(), 'load'),
-        'source' => array('name'),
+      '#maxlength'     => 125,
+      '#description'   => t('Unique, machine-readable identifier for this Index'),
+      '#machine_name'  => [
+        'exists'          => [$this->getIndexStorage(), 'load'],
+        'source'          => ['name'],
         'replace_pattern' => '[^a-z0-9_]+',
-        'replace' => '_',
-      ),
-      '#required' => TRUE,
-      '#disabled' => !empty($this->entity->index_id),
-      '#weight' => 2,
-    );
+        'replace'         => '_',
+      ],
+      '#required'      => TRUE,
+      '#disabled'      => !empty($this->entity->index_id),
+      '#weight'        => 2,
+    ];
 
     // Here server refers to the elasticsearch cluster.
-    $form['server'] = array(
-      '#type' => 'radios',
-      '#title' => $this->t('Server'),
+    $form['server'] = [
+      '#type'          => 'radios',
+      '#title'         => $this->t('Server'),
       '#default_value' => !empty($this->entity->server) ? $this->entity->server : $this->clusterManager->getDefaultCluster(),
-      '#description' => $this->t('Select the server this index should reside on. Index can not be enabled without connection to valid server.'),
-      '#options' => $this->getClusterField('cluster_id'),
-      '#weight' => 9,
-      '#required' => TRUE,
-    );
+      '#description'   => $this->t('Select the server this index should reside on. Index can not be enabled without connection to valid server.'),
+      '#options'       => $this->getClusterField('cluster_id'),
+      '#weight'        => 9,
+      '#required'      => TRUE,
+    ];
 
-    $form['num_of_shards'] = array(
-      '#type' => 'textfield',
-      '#title' => t('Number of shards'),
-      '#required' => TRUE,
+    $form['num_of_shards'] = [
+      '#type'          => 'number',
+      '#title'         => t('Number of shards'),
+      '#required'      => TRUE,
+      '#min'           => 1,
+      '#max'           => 100,
       '#default_value' => 5,
-      '#description' => t('Enter the number of shards for the index.'),
-      '#weight' => 3,
-    );
+      '#description'   => t('Enter the number of shards for the index.'),
+      '#weight'        => 3,
+    ];
 
-    $form['num_of_replica'] = array(
-      '#type' => 'textfield',
-      '#title' => t('Number of replica'),
+    $form['num_of_replica'] = [
+      '#type'          => 'number',
+      '#title'         => t('Number of replica'),
+      '#min'           => 1,
+      '#max'           => 100,
       '#default_value' => 1,
-      '#description' => t('Enter the number of shards replicas.'),
-      '#weight' => 4,
-    );
+      '#description'   => t('Enter the number of shards replicas.'),
+      '#weight'        => 4,
+    ];
 
-    $form['codec'] = array(
-      '#type' => 'select',
-      '#title' => t('Codec'),
-      '#default_value' => (!empty($this->entity->codec) ? $this->entity->codec : 'default'),
-      '#description' => t('Select compression for stored data. Defaults to: LZ4.'),
-      '#options' => array(
-        'default' => 'LZ4',
+    $form['codec'] = [
+      '#type'          => 'select',
+      '#title'         => t('Codec'),
+      '#default_value' => !empty($this->entity->codec) ? $this->entity->codec : 'default',
+      '#description'   => t('Select compression for stored data. Defaults to: LZ4.'),
+      '#options'       => [
+        'default'          => 'LZ4',
         'best_compression' => 'DEFLATE',
-      ),
-      '#weight' => 5,
-    );
+      ],
+      '#weight'        => 5,
+    ];
   }
 
   /**
@@ -255,61 +286,60 @@ class IndexForm extends EntityForm {
     if (!preg_match('/^[a-z][a-z0-9_]*$/i', $values['index_id'])) {
       $form_state->setErrorByName('name', t('Enter an index name that begins with a letter and contains only letters, numbers, and underscores.'));
     }
-
-    if (!is_numeric($values['num_of_shards']) || $values['num_of_shards'] < 1) {
-      $form_state->setErrorByName('num_of_shards', t('Invalid number of shards.'));
-    }
-
-    if (!is_numeric($values['num_of_replica'])) {
-      $form_state->setErrorByName('num_of_replica', t('Invalid number of replica.'));
-    }
   }
 
   /**
    * {@inheritdoc}
    */
   public function save(array $form, FormStateInterface $form_state) {
-    $cluster = $this->entityTypeManager->getStorage('elasticsearch_cluster')->load($this->entity->server);
-    $client = $this->clientManager->getClientForCluster($cluster);
+    $cluster = $this
+      ->entityTypeManager
+      ->getStorage('elasticsearch_cluster')
+      ->load($this->entity->server);
+    $client = $this->clientManager->getClient($cluster);
 
-    $index_params['index'] = $this->entity->index_id;
-    $index_params['body']['settings']['number_of_shards'] = $form_state->getValue('num_of_shards');
-    $index_params['body']['settings']['number_of_replicas'] = $form_state->getValue('num_of_replica');
-    $index_params['body']['settings']['codec'] = $form_state->getValue('codec');
+    $index_params = [
+      'settings' => [
+        'number_of_shards'   => (int) $form_state->getValue('num_of_shards'),
+        'number_of_replicas' => (int) $form_state->getValue('num_of_replica'),
+        'codec'              => $form_state->getValue('codec'),
+      ],
+    ];
 
     try {
-      $response = $client->indices()->create($index_params);
-      if ($client->CheckResponseAck($response)) {
-        drupal_set_message(
+      $index = $client->getIndex($this->entity->index_id);
+      $response = $index->create($index_params);
+      if ($response->isOk()) {
+        $this->messenger->addMessage(
           t(
             'The index %index having id %index_id has been successfully created.',
-            array(
-              '%index' => $form_state->getValue('name'),
+            [
+              '%index'    => $form_state->getValue('name'),
               '%index_id' => $form_state->getValue('index_id'),
-            )
+            ]
           )
         );
       }
       else {
-        drupal_set_message(
+        $this->messenger->addMessage(
           t(
             'Fail to create the index %index having id @index_id',
-            array(
-              '%index' => $form_state->getValue('name'),
+            [
+              '%index'    => $form_state->getValue('name'),
               '@index_id' => $form_state->getValue('index_id'),
-            )
+            ]
           ), 'error'
         );
       }
 
       parent::save($form, $form_state);
 
-      drupal_set_message(t('Index %label has been added.', array('%label' => $this->entity->label())));
+      $this->messenger->addMessage(t('Index %label has been added.', ['%label' => $this->entity->label()]));
 
       $form_state->setRedirect('elasticsearch_connector.config_entity.list');
     }
     catch (\Exception $e) {
-      drupal_set_message($e->getMessage(), 'error');
+      $this->messenger->addMessage($e->getMessage(), 'error');
     }
   }
 

@@ -5,10 +5,10 @@ namespace Drupal\elasticsearch_connector\Form;
 use Drupal\Core\Entity\EntityConfirmFormBase;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\elasticsearch_connector\ElasticSearch\ClientManagerInterface;
-use Drupal\elasticsearch_connector\Entity\Cluster;
+use Drupal\Core\Messenger\MessengerInterface;
+use Drupal\elasticsearch_connector\ElasticSearch\ClientManager;
 use Drupal\Core\Url;
-use Elasticsearch\Common\Exceptions\Missing404Exception;
+use Elastica\Exception\NotFoundException;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -17,7 +17,9 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 class IndexDeleteForm extends EntityConfirmFormBase {
 
   /**
-   * @var ClientManagerInterface
+   * Client manager service.
+   *
+   * @var \Drupal\elasticsearch_connector\ElasticSearch\ClientManager
    */
   private $clientManager;
 
@@ -31,24 +33,27 @@ class IndexDeleteForm extends EntityConfirmFormBase {
   /**
    * ElasticsearchController constructor.
    *
-   * @param ClientManagerInterface $client_manager
+   * @param \Drupal\elasticsearch_connector\ElasticSearch\ClientManager $client_manager
    *   The client manager service.
-   * @param EntityTypeManagerInterface $entity_type_manager
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
    *   The entity type manager service.
+   * @param \Drupal\Core\Messenger\MessengerInterface $messenger
+   *   Messenger service.
    */
-  public function __construct(ClientManagerInterface $client_manager, EntityTypeManagerInterface $entity_type_manager) {
+  public function __construct(ClientManager $client_manager, EntityTypeManagerInterface $entity_type_manager, MessengerInterface $messenger) {
     $this->clientManager = $client_manager;
     $this->entityTypeManager = $entity_type_manager;
+    $this->setMessenger($messenger);
   }
 
   /**
-   *
+   * {@inheritdoc}
    */
-  static public function create(ContainerInterface $container) {
-    return new static (
+  public static function create(ContainerInterface $container) {
+    return new static(
       $container->get('elasticsearch_connector.client_manager'),
       $container->get('entity_type.manager'),
-      $container->get('elasticsearch_connector.cluster_manager')
+      $container->get('messenger')
     );
   }
 
@@ -63,25 +68,23 @@ class IndexDeleteForm extends EntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-    /** @var Cluster $cluster */
+    /** @var \Drupal\elasticsearch_connector\Entity\Cluster $cluster */
     $cluster = $this->entityTypeManager->getStorage('elasticsearch_cluster')->load($this->entity->server);
-    $client = $this->clientManager->getClientForCluster($cluster);
+    $client = $this->clientManager->getClient($cluster);
     try {
-      if ($client->indices()
-                 ->exists(array('index' => $this->entity->index_id))
-      ) {
-        $client->indices()->delete(['index' => $this->entity->index_id]);
+      if ($client->getIndex($this->entity->index_id)->exists()) {
+        $client->getIndex($this->entity->index_id)->delete();
       }
       $this->entity->delete();
-      drupal_set_message($this->t('The index %title has been deleted.', array('%title' => $this->entity->label())));
+      $this->messenger->addMessage($this->t('The index %title has been deleted.', array('%title' => $this->entity->label())));
       $form_state->setRedirect('elasticsearch_connector.config_entity.list');
     }
-    catch (Missing404Exception $e) {
+    catch (NotFoundException $e) {
       // The index was not found, so just remove it anyway.
-      drupal_set_message($e->getMessage(), 'error');
+      $this->messenger->addMessage($e->getMessage(), 'error');
     }
     catch (\Exception $e) {
-      drupal_set_message($e->getMessage(), 'error');
+      $this->messenger->addMessage($e->getMessage(), 'error');
     }
   }
 

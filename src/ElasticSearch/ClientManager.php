@@ -3,18 +3,22 @@
 namespace Drupal\elasticsearch_connector\ElasticSearch;
 
 use Drupal\Core\Extension\ModuleHandlerInterface;
+use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\elasticsearch_connector\Entity\Cluster;
-use nodespark\DESConnector\ClientFactoryInterface;
+use Elastica\Client;
+use Elastica\Exception\Connection\GuzzleException;
+use Elastica\Exception\Connection\HttpException;
+use Elastica\Exception\ConnectionException;
 
 /**
  * Class ClientManager.
  */
-class ClientManager implements ClientManagerInterface {
+class ClientManager {
 
   /**
-   * Array of clients keyed by JSON encoded cluster URL and options.
+   * Array of clients keyed by cluster URL.
    *
-   * @var \nodespark\DESConnector\ClientInterface[]
+   * @var \Elastica\Client[]
    */
   protected $clients = [];
 
@@ -26,51 +30,51 @@ class ClientManager implements ClientManagerInterface {
   protected $moduleHandler;
 
   /**
-   * Client manager factory.
+   * Logger.
    *
-   * @var \nodespark\DESConnector\ClientFactoryInterface
+   * @var \Drupal\Core\Logger\LoggerChannelInterface|null
    */
-  protected $clientManagerFactory;
+  private $logger;
 
   /**
-   * {@inheritdoc}
+   * ClientManager constructor.
+   *
+   * @param \Drupal\Core\Extension\ModuleHandlerInterface $moduleHandler
+   *   Module service.
+   * @param \Drupal\Core\Logger\LoggerChannelInterface|null $logger
+   *   Logger.
    */
-  public function __construct(ModuleHandlerInterface $module_handler, ClientFactoryInterface $clientManagerFactory) {
-    $this->moduleHandler = $module_handler;
-    $this->clientManagerFactory = $clientManagerFactory;
+  public function __construct(ModuleHandlerInterface $moduleHandler, LoggerChannelInterface $logger = NULL) {
+    $this->moduleHandler = $moduleHandler;
+    $this->logger        = $logger;
   }
 
   /**
-   * {@inheritdoc}
+   * Returns Elasticsearch client.
+   *
+   * @param \Drupal\elasticsearch_connector\Entity\Cluster $cluster
+   *   Cluster to connect.
+   *
+   * @return \Elastica\Client
+   *   Instance of Elasticsearch client.
    */
-  public function getClientForCluster(Cluster $cluster) {
-    $hosts = [
-      [
-        'url' => $cluster->url,
-        'options' => $cluster->options,
-      ],
-    ];
+  public function getClient(Cluster $cluster): Client {
 
-    $hash = json_encode($hosts);
-    if (!isset($this->clients[$hash])) {
+    $url = rtrim($cluster->url, '/') . '/';
+    if (!isset($this->clients[$url])) {
+      $timeout = !empty($cluster->options['timeout']) ?
+        (int) $cluster->options['timeout'] :
+        Cluster::ELASTICSEARCH_CONNECTOR_DEFAULT_TIMEOUT;
+
       $options = [
-        'hosts' => [
-          $cluster->getRawUrl(),
-        ],
-        'options' => [],
-        'curl' => [
-          CURLOPT_CONNECTTIMEOUT => (!empty($cluster->options['timeout']) ? $cluster->options['timeout'] : Cluster::ELASTICSEARCH_CONNECTOR_DEFAULT_TIMEOUT),
-        ],
+        'url'       => $url,
+        'transport' => 'Guzzle',
+        'timeout'   => $timeout,
       ];
 
       if ($cluster->options['use_authentication']) {
-        $options['auth'] = [
-          $cluster->url => [
-            'username' => $cluster->options['username'],
-            'password' => $cluster->options['password'],
-            'method' => $cluster->options['authentication_type'],
-          ],
-        ];
+        $options['username'] = $cluster->options['username'];
+        $options['password'] = $cluster->options['password'];
       }
 
       $this->moduleHandler->alter(
@@ -79,10 +83,10 @@ class ClientManager implements ClientManagerInterface {
         $cluster
       );
 
-      $this->clients[$hash] = $this->clientManagerFactory->create($options);
+      $this->clients[$url] = new Client($options, NULL, $this->logger);
     }
 
-    return $this->clients[$hash];
+    return $this->clients[$url];
   }
 
 }

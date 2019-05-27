@@ -12,7 +12,10 @@ use Symfony\Component\EventDispatcher\Event;
  */
 class PrepareIndexMappingEvent extends Event {
 
-  const PREPARE_INDEX_MAPPING = 'elasticsearch_connector.prepare_index_mapping';
+  /**
+   * Event name.
+   */
+  public const PREPARE_INDEX_MAPPING = 'elasticsearch_connector.prepare_index_mapping';
 
   /**
    * Index Mapping.
@@ -20,13 +23,6 @@ class PrepareIndexMappingEvent extends Event {
    * @var array
    */
   protected $indexMappingParams;
-
-  /**
-   * ElasticSearch Index Name.
-   *
-   * @var string
-   */
-  protected $indexName;
 
   /**
    * Search API Index.
@@ -39,21 +35,22 @@ class PrepareIndexMappingEvent extends Event {
    * PrepareIndexMappingEvent constructor.
    *
    * @param array $indexMappingParams
-   * @param string $indexName
+   *   Index mapping params.
    * @param \Drupal\search_api\IndexInterface $index
+   *   Index.
    */
-  public function __construct(array $indexMappingParams, $indexName, IndexInterface $index) {
+  public function __construct(array $indexMappingParams, IndexInterface $index) {
     $this->indexMappingParams = $indexMappingParams;
-    $this->indexName          = $indexName;
-    $this->index              = $index;
+    $this->index = $index;
   }
 
   /**
    * Getter for the index params array.
    *
-   * @return array indexMappingParams
+   * @return array
+   *   Index Mapping Params.
    */
-  public function getIndexMappingParams() {
+  public function getIndexMappingParams(): array {
     return $this->indexMappingParams;
   }
 
@@ -61,24 +58,17 @@ class PrepareIndexMappingEvent extends Event {
    * Setter for the index params array.
    *
    * @param array $indexMappingParams
+   *   Index mapping params.
    */
   public function setIndexMappingParams(array $indexMappingParams): void {
     $this->indexMappingParams = $indexMappingParams;
   }
 
   /**
-   * Getter for the index name.
-   *
-   * @return string indexName
-   */
-  public function getIndexName(): string {
-    return $this->indexName;
-  }
-
-  /**
    * Getter for index.
    *
    * @return \Drupal\search_api\IndexInterface
+   *   Index.
    */
   public function getIndex(): IndexInterface {
     return $this->index;

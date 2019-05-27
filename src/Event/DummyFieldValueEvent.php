@@ -15,6 +15,9 @@ use Symfony\Component\EventDispatcher\Event;
  */
 class DummyFieldValueEvent extends Event {
 
+  /**
+   * Event name.
+   */
   public const GET_FIELD_VALUE = 'elasticsearch_connector.dummy_field_value';
 
   /**

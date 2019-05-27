@@ -10,7 +10,8 @@ use Drupal\search_api\ParseMode\ParseModeInterface;
 use Drupal\search_api\Query\Condition;
 use Drupal\search_api\Query\ConditionGroupInterface;
 use Drupal\search_api\Query\QueryInterface;
-use Elasticsearch\Common\Exceptions\ElasticsearchException;
+use Elastica\Exception\ConnectionException;
+use Elastica\Exception\ResponseException;
 use MakinaCorpus\Lucene\Query;
 use MakinaCorpus\Lucene\CollectionQuery;
 use MakinaCorpus\Lucene\TermCollectionQuery;
@@ -22,6 +23,7 @@ use Drupal\elasticsearch_connector\Event\BuildSearchParamsEvent;
  * Class SearchBuilder.
  */
 class SearchBuilder {
+
   use StringTranslationTrait;
 
   /**
@@ -49,6 +51,13 @@ class SearchBuilder {
   protected $body;
 
   /**
+   * Messenger service.
+   *
+   * @var \Drupal\Core\Messenger\MessengerInterface
+   */
+  protected $messenger;
+
+  /**
    * ParameterBuilder constructor.
    *
    * @param \Drupal\search_api\Query\QueryInterface $query
@@ -58,6 +67,7 @@ class SearchBuilder {
     $this->query = $query;
     $this->index = $query->getIndex();
     $this->body = [];
+    $this->messenger = \Drupal::service('messenger');
   }
 
   /**
@@ -68,7 +78,7 @@ class SearchBuilder {
    */
   public function build() {
     // Query options.
-    $params = IndexFactory::index($this->index, TRUE);
+    $params = IndexFactory::index($this->index);
     $query_options = $this->getSearchQueryOptions();
 
     // Set the size and from parameters.
@@ -198,7 +208,9 @@ class SearchBuilder {
       }
 
       // Query string.
-      $lucene = $this->flattenKeys($keys, $parse_mode, $this->index->getServerInstance()->getBackend()->getFuzziness());
+      $lucene = $this->flattenKeys($keys, $parse_mode, $this->index->getServerInstance()
+        ->getBackend()
+        ->getFuzziness());
       $search_string = $lucene->__toString();
 
       if (!empty($search_string)) {
@@ -213,9 +225,9 @@ class SearchBuilder {
     try {
       $sort = $this->getSortSearchQuery();
     }
-    catch (ElasticsearchException $e) {
+    catch (ResponseException | ConnectionException $e) {
       watchdog_exception('Elasticsearch Search API', $e);
-      drupal_set_message($e->getMessage(), 'error');
+      $this->messenger->addMessage($e->getMessage(), 'error');
     }
 
     $languages = $this->query->getLanguages();
@@ -234,13 +246,13 @@ class SearchBuilder {
         $query_search_filter = $parsed_query_filters;
       }
     }
-    catch (ElasticsearchException $e) {
+    catch (ResponseException | ConnectionException $e) {
       watchdog_exception(
         'Elasticsearch Search API',
         $e,
         Html::escape($e->getMessage())
       );
-      drupal_set_message(Html::escape($e->getMessage()), 'error');
+      $this->messenger->addMessage(Html::escape($e->getMessage()), 'error');
     }
 
     // More Like This.
@@ -250,12 +262,12 @@ class SearchBuilder {
     }
 
     $elasticSearchQuery = [
-      'query_offset' => $query_offset,
-      'query_limit' => $query_limit,
+      'query_offset'        => $query_offset,
+      'query_limit'         => $query_limit,
       'query_search_string' => $query_search_string,
       'query_search_filter' => $query_search_filter,
-      'sort' => $sort,
-      'mlt' => $mlt,
+      'sort'                => $sort,
+      'mlt'                 => $mlt,
     ];
 
     // Allow other modules to alter index config before we create it.
@@ -284,7 +296,7 @@ class SearchBuilder {
    */
   protected function flattenKeys(array $keys, ParseModeInterface $parse_mode = NULL, $fuzzy = TRUE) {
     // Grab the conjunction if present.
-    $conjunction = isset($keys['#conjunction']) ? $keys['#conjunction'] : 'AND';
+    $conjunction = $keys['#conjunction'] ?? 'AND';
 
     $query = new CollectionQuery();
     $query->setOperator($conjunction);
@@ -296,7 +308,7 @@ class SearchBuilder {
     }
 
     // Filter out top level properties beginning with '#'.
-    $keys = array_filter($keys, function ($key) {
+    $keys = array_filter($keys, static function ($key) {
       return $key[0] !== '#';
     }, ARRAY_FILTER_USE_KEY);
 
@@ -324,7 +336,7 @@ class SearchBuilder {
    */
   protected function createTermCollection($keys, $fuzzy) {
     // Grab the conjunction and negation properties if present.
-    $conjunction = isset($keys['#conjunction']) ? $keys['#conjunction'] : 'AND';
+    $conjunction = $keys['#conjunction'] ?? 'AND';
     $negation = !empty($keys['#negation']);
 
     // Create a top level query.
@@ -335,7 +347,7 @@ class SearchBuilder {
     }
 
     // Filter out top level properties beginning with '#'.
-    $keys = array_filter($keys, function ($key) {
+    $keys = array_filter($keys, static function ($key) {
       return $key[0] !== '#';
     }, ARRAY_FILTER_USE_KEY);
 
@@ -377,7 +389,7 @@ class SearchBuilder {
         $sort['id'] = $direction;
       }
       elseif (isset($index_fields[$field_id])) {
-        if (in_array($field_id, $query_full_text_fields)) {
+        if (in_array($field_id, $query_full_text_fields, TRUE)) {
           // Set the field that has not been analyzed for sorting.
           $sort[self::getNestedPath($field_id) . '.keyword'] = $direction;
         }
@@ -429,7 +441,7 @@ class SearchBuilder {
     $filters = [];
     $backend_fields = ['_language' => TRUE];
 
-    if (!empty($condition_group)) {
+    if ($condition_group !== NULL) {
       $conjunction = $condition_group->getConjunction();
 
       foreach ($condition_group->getConditions() as $condition) {
@@ -445,7 +457,7 @@ class SearchBuilder {
           }
 
           $field_id = $condition->getField();
-          if (!isset($index_fields[$field_id]) && !isset ($backend_fields[$field_id])) {
+          if (!isset($index_fields[$field_id]) && !isset($backend_fields[$field_id])) {
             // TODO: proper exception.
             throw new \Exception(
               t(
@@ -532,7 +544,7 @@ class SearchBuilder {
         t(
           'Undefined conjunction :conjunction! Available values are :avail_conjunction! Incorrect filter criteria is using for searching!',
           [
-            ':conjunction!' => $conjunction,
+            ':conjunction!'      => $conjunction,
             ':avail_conjunction' => $conjunction,
           ]
         )

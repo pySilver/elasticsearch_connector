@@ -10,12 +10,12 @@ use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\Form\FormBuilderInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Link;
+use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Url;
 use Drupal\elasticsearch_connector\ClusterManager;
-use Drupal\elasticsearch_connector\ElasticSearch\ClientManagerInterface;
+use Drupal\elasticsearch_connector\ElasticSearch\ClientManager;
 use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\IndexFactory;
 use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\SearchFactory;
-use Drupal\elasticsearch_connector\Entity\Cluster;
 use Drupal\search_api\Backend\BackendPluginBase;
 use Drupal\search_api\IndexInterface;
 use Drupal\search_api\Query\QueryInterface;
@@ -25,9 +25,12 @@ use Drupal\search_api\SearchApiException;
 use Drupal\search_api_autocomplete\SearchApiAutocompleteSearchInterface;
 use Drupal\search_api_autocomplete\SearchInterface;
 use Drupal\search_api_autocomplete\Suggestion\SuggestionFactory;
-use Elasticsearch\Common\Exceptions\ElasticsearchException;
-use nodespark\DESConnector\Elasticsearch\Aggregations\Bucket\Terms;
-use nodespark\DESConnector\Elasticsearch\Aggregations\Metrics\Stats;
+use Elastica\Exception\ConnectionException;
+use Elastica\Exception\ResponseException;
+use Elastica\Response;
+use Elastica\Search;
+use Elastica\Type;
+use Elastica\Type\Mapping;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\Core\Plugin\PluginFormInterface;
@@ -89,7 +92,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   /**
    * Elasticsearch client.
    *
-   * @var \nodespark\DESConnector\ClientInterface
+   * @var \Elastica\Client
    */
   protected $client;
 
@@ -110,7 +113,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   /**
    * Client manager service.
    *
-   * @var \Drupal\elasticsearch_connector\ElasticSearch\ClientManagerInterface
+   * @var \Drupal\elasticsearch_connector\ElasticSearch\ClientManager
    */
   protected $clientManager;
 
@@ -155,7 +158,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    *   Form builder service.
    * @param \Drupal\Core\Extension\ModuleHandlerInterface $module_handler
    *   Module handler service.
-   * @param \Drupal\elasticsearch_connector\ElasticSearch\ClientManagerInterface $client_manager
+   * @param \Drupal\elasticsearch_connector\ElasticSearch\ClientManager $client_manager
    *   Client manager service.
    * @param \Drupal\Core\Config\Config $elasticsearch_settings
    *   Elasticsearch settings object.
@@ -167,7 +170,11 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    *   The entity type manager service.
    * @param \Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\IndexFactory $indexFactory
    *   Index factory.
+   * @param \Drupal\Core\Messenger\MessengerInterface $messenger
+   *   Messenger service.
    *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    * @throws \Drupal\search_api\SearchApiException
    */
   public function __construct(
@@ -176,12 +183,13 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
     array $plugin_definition,
     FormBuilderInterface $form_builder,
     ModuleHandlerInterface $module_handler,
-    ClientManagerInterface $client_manager,
+    ClientManager $client_manager,
     Config $elasticsearch_settings,
     LoggerInterface $logger,
     ClusterManager $cluster_manager,
     EntityTypeManagerInterface $entity_type_manager,
-    IndexFactory $indexFactory
+    IndexFactory $indexFactory,
+    MessengerInterface $messenger
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
 
@@ -193,23 +201,22 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
     $this->clusterManager = $cluster_manager;
     $this->entityTypeManager = $entity_type_manager;
     $this->indexFactory = $indexFactory;
+    $this->setMessenger($messenger);
 
     if (empty($this->configuration['cluster_settings']['cluster'])) {
       $this->configuration['cluster_settings']['cluster'] = $this->clusterManager->getDefaultCluster();
     }
 
-    $this->cluster = $this->entityTypeManager->getStorage('elasticsearch_cluster')->load(
-      $this->configuration['cluster_settings']['cluster']
-    );
+    $this->cluster = $this
+      ->entityTypeManager
+      ->getStorage('elasticsearch_cluster')
+      ->load($this->configuration['cluster_settings']['cluster']);
 
     if (!isset($this->cluster)) {
       throw new SearchApiException($this->t('Cannot load the Elasticsearch cluster for your index.'));
     }
 
-    $this->client = $this->clientManager->getClientForCluster(
-      $this->cluster
-    );
-
+    $this->client = $this->clientManager->getClient($this->cluster);
   }
 
   /**
@@ -224,10 +231,11 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       $container->get('module_handler'),
       $container->get('elasticsearch_connector.client_manager'),
       $container->get('config.factory')->get('elasticsearch.settings'),
-      $container->get('logger.factory')->get('elasticconnector_sapi'),
+      $container->get('logger.channel.elasticsearch'),
       $container->get('elasticsearch_connector.cluster_manager'),
       $container->get('entity_type.manager'),
-      $container->get('elasticsearch_connector.index_factory')
+      $container->get('elasticsearch_connector.index_factory'),
+      $container->get('messenger')
     );
   }
 
@@ -236,20 +244,20 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    */
   public function defaultConfiguration() {
     return [
-      'cluster_settings' => [
+      'cluster_settings'          => [
         'cluster' => '',
       ],
-      'scheme' => 'http',
-      'host' => 'localhost',
-      'port' => '9200',
-      'path' => '',
-      'excerpt' => FALSE,
-      'retrieve_data' => FALSE,
-      'highlight_data' => FALSE,
-      'http_method' => 'AUTO',
-      'autocorrect_spell' => TRUE,
+      'scheme'                    => 'http',
+      'host'                      => 'localhost',
+      'port'                      => '9200',
+      'path'                      => '',
+      'excerpt'                   => FALSE,
+      'retrieve_data'             => FALSE,
+      'highlight_data'            => FALSE,
+      'http_method'               => 'AUTO',
+      'autocorrect_spell'         => TRUE,
       'autocorrect_suggest_words' => TRUE,
-      'fuzziness' => self::FUZZINESS_AUTO,
+      'fuzziness'                 => self::FUZZINESS_AUTO,
     ];
   }
 
@@ -261,13 +269,13 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       $server_link = $this->cluster->getSafeUrl();
       // Editing this server.
       $form['server_description'] = [
-        '#type' => 'item',
-        '#title' => $this->t('Elasticsearch Cluster'),
+        '#type'        => 'item',
+        '#title'       => $this->t('Elasticsearch Cluster'),
         '#description' => Link::fromTextAndUrl($server_link, Url::fromUri($server_link)),
       ];
     }
     $form['cluster_settings'] = [
-      '#type' => 'fieldset',
+      '#type'  => 'fieldset',
       '#title' => t('Elasticsearch settings'),
     ];
 
@@ -280,26 +288,26 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
 
     $options[$this->clusterManager->getDefaultCluster()] = t('Default cluster: @name', ['@name' => $this->clusterManager->getDefaultCluster()]);
     $form['cluster_settings']['cluster'] = [
-      '#type' => 'select',
-      '#title' => t('Cluster'),
-      '#required' => TRUE,
-      '#options' => $options,
-      '#default_value' => $this->configuration['cluster_settings']['cluster'] ? $this->configuration['cluster_settings']['cluster'] : '',
-      '#description' => t('Select the cluster you want to handle the connections.'),
+      '#type'          => 'select',
+      '#title'         => t('Cluster'),
+      '#required'      => TRUE,
+      '#options'       => $options,
+      '#default_value' => $this->configuration['cluster_settings']['cluster'] ?: '',
+      '#description'   => t('Select the cluster you want to handle the connections.'),
     ];
 
     $fuzziness_options = [
-      '' => $this->t('- Disabled -'),
+      ''                   => $this->t('- Disabled -'),
       self::FUZZINESS_AUTO => self::FUZZINESS_AUTO,
     ];
     $fuzziness_options += array_combine(range(0, 5), range(0, 5));
     $form['fuzziness'] = [
-      '#type' => 'select',
-      '#title' => t('Fuzziness'),
-      '#required' => TRUE,
-      '#options' => $fuzziness_options,
+      '#type'          => 'select',
+      '#title'         => t('Fuzziness'),
+      '#required'      => TRUE,
+      '#options'       => $fuzziness_options,
       '#default_value' => $this->configuration['fuzziness'],
-      '#description' => $this->t('Some queries and APIs support parameters to allow inexact fuzzy matching, using the fuzziness parameter. See <a href="https://www.elastic.co/guide/en/elasticsearch/reference/5.6/common-options.html#fuzziness">Fuzziness</a> for more information.'),
+      '#description'   => $this->t('Some queries and APIs support parameters to allow inexact fuzzy matching, using the fuzziness parameter. See <a href="https://www.elastic.co/guide/en/elasticsearch/reference/5.6/common-options.html#fuzziness">Fuzziness</a> for more information.'),
     ];
 
     return $form;
@@ -307,22 +315,25 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
 
   /**
    * {@inheritdoc}
-   *
-   * TODO: implement 'search_api_multi',
-   * TODO: implement 'search_api_service_extra',
-   * TODO: implement 'search_api_spellcheck',
-   * TODO: implement 'search_api_data_type_location',
-   * TODO: implement 'search_api_data_type_geohash',
    */
   public function getSupportedFeatures() {
     // First, check the features we always support.
     return [
       'search_api_autocomplete',
+      'search_api_granular',
       'search_api_facets',
       'search_api_facets_operator_or',
       'search_api_grouping',
       'search_api_mlt',
+      'search_api_random_sort',
     ];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function supportsDataType($type) {
+    return in_array($type, ['object', 'nested_object']);
   }
 
   /**
@@ -334,12 +345,12 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
     $server_link = $this->cluster->getSafeUrl();
     $info[] = [
       'label' => $this->t('Elasticsearch server URI'),
-      'info' => Link::fromTextAndUrl($server_link, Url::fromUri($server_link)),
+      'info'  => Link::fromTextAndUrl($server_link, Url::fromUri($server_link)),
     ];
 
     if ($this->server->status()) {
       // If the server is enabled, check whether Elasticsearch can be reached.
-      $ping = $this->client->isClusterOk();
+      $ping = $this->client->hasConnection();
       if ($ping) {
         $msg = $this->t('The Elasticsearch server could be reached');
       }
@@ -347,8 +358,8 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
         $msg = $this->t('The Elasticsearch server could not be reached. Further data is therefore unavailable.');
       }
       $info[] = [
-        'label' => $this->t('Connection'),
-        'info' => $msg,
+        'label'  => $this->t('Connection'),
+        'info'   => $msg,
         'status' => $ping ? 'ok' : 'error',
       ];
     }
@@ -380,91 +391,98 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * {@inheritdoc}
    */
   public function addIndex(IndexInterface $index) {
-    $this->updateIndex($index);
+    $params = $this->indexFactory::index($index);
+    $elastic_index = $this->client->getIndex($params['index']);
+
+    try {
+      // Delete index if already exists:
+      if ($elastic_index->exists()) {
+        $elastic_index->delete();
+      }// Adds index:
+      $response = $elastic_index->create($this->indexFactory::create($index));
+      if (!$response->isOk()) {
+        $this->messenger->addMessage($this->t(
+          'Failed to create index. Elasticsearch response: @error',
+          ['@error' => $response->getErrorMessage()]
+        ), 'error');
+        return;
+      }
+
+      // Adds mapping:
+      $type = $elastic_index->getType($params['type']);
+      $response = $this->createMapping($type, $index);
+      if (!$response->isOk()) {
+        $this->messenger->addMessage($this->t(
+          'Failed to create index mapping. Elasticsearch response: @error',
+          ['@error' => $response->getErrorMessage()]
+        ), 'error');
+      }
+    }
+    catch (ResponseException | ConnectionException $e) {
+      $this->messenger->addMessage($e->getMessage(), 'error');
+    }
   }
 
   /**
    * {@inheritdoc}
    */
   public function updateIndex(IndexInterface $index) {
-    try {
-      if (!$this->client->indices()->exists($this->indexFactory->index($index))) {
-        $response = $this->client->indices()->create(
-          $this->indexFactory->create($index)
-        );
-        if (!$this->client->CheckResponseAck($response)) {
-          drupal_set_message($this->t('The elasticsearch client was not able to create index'), 'error');
-        }
-      }
-
-      // Update mapping.
-      $this->fieldsUpdated($index);
-    }
-    catch (ElasticsearchException $e) {
-      drupal_set_message($e->getMessage(), 'error');
+    if ($this->hasMappingChanges($index) || $this->hasSettingsChanged($index)) {
+      // Reinstall index & mapping, then schedule full reindex.
+      $this->addIndex($index);
+      $index->reindex();
     }
   }
 
   /**
-   * Create or re-create the given index's field mapping.
+   * Create mapping.
+   *
+   * @param \Elastica\Type $type
+   *   Type.
+   * @param \Drupal\search_api\IndexInterface $index
+   *   Index.
+   *
+   * @return \Elastica\Response
+   *   Response object.
+   *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
+  public function createMapping(Type $type, IndexInterface $index): Response {
+    $mappingParams = $this->indexFactory::mapping($index);
+
+    $mapping = new Mapping($type, $mappingParams['properties']);
+    if (isset($mappingParams['dynamic_templates']) && !empty($mappingParams['dynamic_templates'])) {
+      $mapping->setParam('dynamic_templates', $mappingParams['dynamic_templates']);
+    }
+
+    return $mapping->send();
+  }
+
+  /**
+   * Checks whether basic index settings has changed.
    *
    * @param \Drupal\search_api\IndexInterface $index
-   *   Index to update fields for.
+   *   Index.
    *
    * @return bool
-   *   TRUE on success, FALSE otherwise.
+   *   Test result.
    */
-  public function fieldsUpdated(IndexInterface $index) {
-    $params = $this->indexFactory->index($index, TRUE);
+  public function hasSettingsChanged(IndexInterface $index): bool {
+    $params = $this->indexFactory::index($index);
+    $new_settings = $index->getThirdPartySettings('elasticsearch_connector');
+    $settings = $this->client->getIndex($params['index'])->getSettings();
 
-    try {
-      if ($this->client->indices()->existsType($params)) {
-        $current_mapping = $this->client->indices()->getMapping($params);
-        if (!empty($current_mapping)) {
-          // First check there are mapping changes to update.
-          if ($this->hasMappingChanges($index)) {
-            try {
-              // If the mapping exits, delete it to be able to re-create it.
-              $this->client->indices()->deleteMapping($params);
-            }
-            catch (ElasticsearchException $e) {
-              // If the mapping exits, delete the index and recreate it.
-              // In Elasticsearch 2.3 it is not possible to delete a mapping,
-              // so don't use $this->client->indices()->deleteMapping as doing
-              // so will throw an exception.
-              $this->removeIndex($index);
-              $this->addIndex($index);
-            }
-
-            $response = $this->client->indices()->putMapping(
-              $this->indexFactory->mapping($index)
-            );
-
-            if (!$this->client->CheckResponseAck($response)) {
-              drupal_set_message(t('Cannot create the mapping of the fields!'), 'error');
-            }
-          }
-          else {
-            return FALSE;
-          }
-        }
-      }
-      else {
-        $response = $this->client->indices()->putMapping(
-          $this->indexFactory->mapping($index)
-        );
-
-        if (!$this->client->CheckResponseAck($response)) {
-          drupal_set_message(t('Cannot create the mapping of the fields!'), 'error');
-        }
-      }
-    }
-    catch (ElasticsearchException $e) {
-      drupal_set_message($e->getMessage(), 'error');
-      return FALSE;
+    if ($new_settings['index']['number_of_shards'] !== $settings->getNumberOfShards()) {
+      return TRUE;
     }
 
-    return TRUE;
+    if ($new_settings['index']['number_of_replicas'] !== $settings->getNumberOfReplicas()) {
+      return TRUE;
+    }
+
+    $new_refresh_interval = $new_settings['index']['refresh_interval'] . 's';
+    return $new_refresh_interval !== $settings->getRefreshInterval();
   }
 
   /**
@@ -480,23 +498,27 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public function hasMappingChanges(IndexInterface $index): bool {
-    $params = $this->indexFactory::index($index, TRUE);
+    $params = $this->indexFactory::index($index);
 
     // Get the new mapping settings.
     $new_mapping = $this->indexFactory::mapping($index);
 
     // Get the current mapping settings.
-    $current_mapping = $this->client->indices()->getMapping($params);
+    $current_mapping = $this
+      ->client
+      ->getIndex($params['index'])
+      ->getType($params['type'])
+      ->getMapping();
 
     // Get diff on both sides.
     $diff_1 = DiffArray::diffAssocRecursive(
-      $new_mapping['body'],
-      $current_mapping[$params['index']]['mappings']
+      $new_mapping,
+      $current_mapping[$params['type']]['properties']
     );
 
     $diff_2 = DiffArray::diffAssocRecursive(
-      $current_mapping[$params['index']]['mappings'],
-      $new_mapping['body']
+      $current_mapping[$params['type']]['properties'],
+      $new_mapping
     );
 
     return !empty($diff_1) || !empty($diff_2);
@@ -506,15 +528,15 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * {@inheritdoc}
    */
   public function removeIndex($index) {
-    $params = $this->indexFactory->index($index);
+    $params = $this->indexFactory::index($index);
 
     try {
-      if ($this->client->indices()->exists($params)) {
-        $this->client->indices()->delete($params);
+      if ($this->client->getIndex($params['index'])->exists()) {
+        $this->client->getIndex($params['index'])->delete();
       }
     }
-    catch (ElasticsearchException $e) {
-      drupal_set_message($e->getMessage(), 'error');
+    catch (ResponseException | ConnectionException $e) {
+      $this->messenger->addMessage($e->getMessage(), 'error');
     }
   }
 
@@ -522,33 +544,44 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * {@inheritdoc}
    */
   public function indexItems(IndexInterface $index, array $items) {
-    $elastic_type_exists = $this->doesTypeExists($index);
+    if (empty($items)) {
+      return [];
+    }
 
-    if (empty($elastic_type_exists) || empty($items)) {
-      return array();
+    $params = $this->indexFactory::index($index);
+    try {
+      $type = $this->client->getIndex($params['index'])
+        ->getType($params['type']);
+      if (!$type->exists()) {
+        $this->messenger->addMessage(
+          $this->t('Failed to index documents. Mapping type does not exist.'),
+          'error'
+        );
+        return [];
+      }
+    }
+    catch (ResponseException | ConnectionException $e) {
+      $this->messenger->addMessage($e->getMessage(), 'error');
+      return [];
     }
 
     try {
-      $response = $this->client->bulk(
-        $this->indexFactory->bulkIndex($index, $items)
+      $response = $type->addDocuments(
+        $this->indexFactory::bulkIndex($index, $items)
       );
+
       // If there were any errors, log them and throw an exception.
-      if (!empty($response['errors'])) {
-        foreach ($response['items'] as $item) {
-          if (!empty($item['index']['status']) && $item['index']['status'] == '400') {
-            $this->logger->error('%reason. %caused_by for id: %id', [
-              '%reason' => $item['index']['error']['reason'],
-              '%caused_by' => $item['index']['error']['caused_by']['reason'],
-              '%id' => $item['index']['_id'],
-            ]);
+      if ($response->hasError()) {
+        foreach ($response->getBulkResponses() as $bulkResponse) {
+          if ($bulkResponse->hasError()) {
+            $this->logger->error($bulkResponse->getError());
           }
         }
-
         throw new SearchApiException($this->t('An error occurred during indexing. Check your watchdog for more information.'));
       }
     }
-    catch (ElasticsearchException $e) {
-      drupal_set_message($e->getMessage(), 'error');
+    catch (ResponseException | ConnectionException $e) {
+      $this->messenger->addMessage($e->getMessage(), 'error');
     }
 
     return array_keys($items);
@@ -565,18 +598,18 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   /**
    * {@inheritdoc}
    */
-  public function deleteItems(IndexInterface $index = NULL, array $ids) {
+  public function deleteItems(IndexInterface $index, array $ids) {
     if (!count($ids)) {
       return;
     }
 
     try {
       $this->client->bulk(
-        $this->indexFactory->bulkDelete($index, $ids)
+        $this->indexFactory::bulkDelete($index, $ids)
       );
     }
-    catch (ElasticsearchException $e) {
-      drupal_set_message($e->getMessage(), 'error');
+    catch (ResponseException | ConnectionException $e) {
+      $this->messenger->addMessage($e->getMessage(), 'error');
     }
   }
 
@@ -617,7 +650,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
     }
     catch (\Exception $e) {
       $this->logger->error($e->getMessage());
-      return array();
+      return [];
     }
   }
 
@@ -631,10 +664,12 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
     // Get index.
     $index = $query->getIndex();
 
-    $params = $this->indexFactory->index($index, TRUE);
+    $params = $this->indexFactory::index($index);
 
     // Check Elasticsearch index.
-    if (!$this->client->indices()->existsType($params)) {
+    if (!$this->client->getIndex($params['index'])
+      ->getType($params['type'])
+      ->exists()) {
       return $search_result;
     }
 
@@ -659,9 +694,9 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       // Note that we cannot use the elasticsearch client aggregations API as
       // it does not support the "include" parameter.
       $params['body']['aggs']['autocomplete']['terms'] = [
-        'field' => $query->getOption('autocomplete_field'),
+        'field'   => $query->getOption('autocomplete_field'),
         'include' => $incomplete_key . '.*',
-        'size' => $query->getOption('limit'),
+        'size'    => $query->getOption('limit'),
       ];
     }
 
@@ -670,7 +705,11 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       $this->preQuery($query);
 
       // Do search.
-      $response = $this->client->search($params)->getRawResponse();
+      // TODO: Its all wrong
+      $search = new Search($this->client);
+      $search->addIndex($params['index']);
+      $search->addType($params['type']);
+      $response = $search->search($params)->getRawResponse();
       $results = SearchFactory::parseResult($query, $response);
 
       // Handle the facets result when enabled.
@@ -694,7 +733,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * {@inheritdoc}
    */
   public function isAvailable() {
-    return $this->client->isClusterOk();
+    return $this->client->hasConnection();
   }
 
   /**
@@ -755,32 +794,32 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       $terms = [];
 
       // Handle 'and' operator.
-      if ($facet['operator'] == 'and' || ($facet['operator'] == 'or' && !isset($response['aggregations'][$key . '_global']))) {
-        if (!empty($facet['type']) && $facet['type'] == 'stats') {
+      if ($facet['operator'] === 'and' || ($facet['operator'] === 'or' && !isset($response['aggregations'][$key . '_global']))) {
+        if (!empty($facet['type']) && $facet['type'] === 'stats') {
           $terms = $response['aggregations'][$key];
         }
         else {
           $buckets = $response['aggregations'][$key]['buckets'];
-          array_walk($buckets, function ($value) use (&$terms, $facet) {
+          array_walk($buckets, static function ($value) use (&$terms, $facet) {
             if ($value['doc_count'] >= $facet['min_count']) {
               $terms[] = [
-                'count' => $value['doc_count'],
+                'count'  => $value['doc_count'],
                 'filter' => '"' . $value['key'] . '"',
               ];
             }
           });
         }
       }
-      elseif ($facet['operator'] == 'or') {
-        if (!empty($facet['type']) && $facet['type'] == 'stats') {
+      elseif ($facet['operator'] === 'or') {
+        if (!empty($facet['type']) && $facet['type'] === 'stats') {
           $terms = $response['aggregations'][$key . '_global'];
         }
         else {
           $buckets = $response['aggregations'][$key . '_global'][$key]['buckets'];
-          array_walk($buckets, function ($value) use (&$terms, $facet) {
+          array_walk($buckets, static function ($value) use (&$terms, $facet) {
             if ($value['doc_count'] >= $facet['min_count']) {
               $terms[] = [
-                'count' => $value['doc_count'],
+                'count'  => $value['doc_count'],
                 'filter' => '"' . $value['key'] . '"',
               ];
             }
@@ -791,26 +830,6 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
     }
 
     $results->setExtraData('search_api_facets', $attach);
-  }
-
-  /**
-   * Helper function, check if the given index and type exists.
-   *
-   * @param \Drupal\search_api\IndexInterface $index
-   *   Index object.
-   *
-   * @return bool
-   *   TRUE if the given index exists in Elasticsearch, otherwise FALSE.
-   */
-  protected function doesTypeExists(IndexInterface $index) {
-    $params = $this->indexFactory->index($index, TRUE);
-    try {
-      return $this->client->indices()->existsType($params);
-    }
-    catch (ElasticsearchException $e) {
-      drupal_set_message($e->getMessage(), 'error');
-      return FALSE;
-    }
   }
 
   /**
@@ -973,7 +992,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   protected function getFacetSearchFilter(QueryInterface $query, array $facet_info) {
     $index_fields = $this->getIndexFields($query);
 
-    if (isset($facet_info['operator']) && Unicode::strtolower($facet_info['operator']) == 'or') {
+    if (isset($facet_info['operator']) && Unicode::strtolower($facet_info['operator']) === 'or') {
       $facet_search_filter = $this->parseConditionGroup($query->getConditionGroup(), $index_fields, $facet_info['field']);
       if (!empty($facet_search_filter)) {
         $facet_search_filter = $facet_search_filter[0];
@@ -1091,7 +1110,10 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
         foreach ($active_items as $active_item) {
           $value = $active_item['value'];
           if (strpos($value, ' TO ') > 0) {
-            list($date_min, $date_max) = explode(' TO ', str_replace(['[', ']'], '', $value), 2);
+            list($date_min, $date_max) = explode(' TO ', str_replace([
+              '[',
+              ']',
+            ], '', $value), 2);
             $gap = self::getDateGap($date_min, $date_max, FALSE);
             if (isset($gap_weight[$gap])) {
               $gaps[] = $gap_weight[$gap];
@@ -1137,7 +1159,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
                 // Divide time by 1000 as we want seconds from epoch
                 // not milliseconds.
                 $result[$facet_id][] = [
-                  'count' => $entry['count'],
+                  'count'  => $entry['count'],
                   'filter' => '"' . ($entry['time'] / 1000) . '"',
                 ];
               }
@@ -1147,7 +1169,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
             foreach ($facet_data['terms'] as $term) {
               if ($term['count'] >= $facet_min_count) {
                 $result[$facet_id][] = [
-                  'count' => $term['count'],
+                  'count'  => $term['count'],
                   'filter' => '"' . $term['term'] . '"',
                 ];
               }
@@ -1187,22 +1209,13 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   protected function postQuery(ResultSetInterface $results, QueryInterface $query, $response) {
   }
 
-  /* TODO: Implement the settings update feature. */
-
-  /**
-   * {@inheritdoc}
-   */
-  public function supportsDataType($type) {
-    return in_array($type, ['object', 'nested_object']);
-  }
-
   /**
    * Implements __sleep()
    *
    * Prevents closure serialization error on search_api server add form
    */
   public function __sleep() {
-    return array();
+    return [];
   }
 
 }

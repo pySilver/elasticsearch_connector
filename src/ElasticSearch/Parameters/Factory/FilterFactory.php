@@ -12,15 +12,17 @@ class FilterFactory {
   /**
    * Get query by Condition instance.
    *
-   * @param Condition $condition
+   * @param \Drupal\search_api\Query\Condition $condition
+   *   Condition.
    *
    * @return array
+   *   Filter
    *
    * @throws \Exception
    */
-  public static function filterFromCondition(Condition $condition) {
+  public static function filterFromCondition(Condition $condition): array {
     // Handles "empty", "not empty" operators.
-    if (is_null($condition->getValue())) {
+    if ($condition->getValue() === NULL) {
       switch ($condition->getOperator()) {
         case '<>':
           $filter = [
@@ -83,8 +85,8 @@ class FilterFactory {
           $filter = [
             'range' => [
               $condition->getField() => [
-                'from' => $condition->getValue(),
-                'to' => NULL,
+                'from'          => $condition->getValue(),
+                'to'            => NULL,
                 'include_lower' => FALSE,
                 'include_upper' => FALSE,
               ],
@@ -96,8 +98,8 @@ class FilterFactory {
           $filter = [
             'range' => [
               $condition->getField() => [
-                'from' => $condition->getValue(),
-                'to' => NULL,
+                'from'          => $condition->getValue(),
+                'to'            => NULL,
                 'include_lower' => TRUE,
                 'include_upper' => FALSE,
               ],
@@ -109,8 +111,8 @@ class FilterFactory {
           $filter = [
             'range' => [
               $condition->getField() => [
-                'from' => NULL,
-                'to' => $condition->getValue(),
+                'from'          => NULL,
+                'to'            => $condition->getValue(),
                 'include_lower' => FALSE,
                 'include_upper' => FALSE,
               ],
@@ -122,8 +124,8 @@ class FilterFactory {
           $filter = [
             'range' => [
               $condition->getField() => [
-                'from' => NULL,
-                'to' => $condition->getValue(),
+                'from'          => NULL,
+                'to'            => $condition->getValue(),
                 'include_lower' => FALSE,
                 'include_upper' => TRUE,
               ],
@@ -135,8 +137,8 @@ class FilterFactory {
           $filter = [
             'range' => [
               $condition->getField() => [
-                'from' => (!empty($condition->getValue()[0])) ? $condition->getValue()[0] : NULL,
-                'to' => (!empty($condition->getValue()[1])) ? $condition->getValue()[1] : NULL,
+                'from'          => !empty($condition->getValue()[0]) ? $condition->getValue()[0] : NULL,
+                'to'            => !empty($condition->getValue()[1]) ? $condition->getValue()[1] : NULL,
                 'include_lower' => FALSE,
                 'include_upper' => FALSE,
               ],
@@ -150,8 +152,8 @@ class FilterFactory {
               'must_not' => [
                 'range' => [
                   $condition->getField() => [
-                    'from' => (!empty($condition->getValue()[0])) ? $condition->getValue()[0] : NULL,
-                    'to' => (!empty($condition->getValue()[1])) ? $condition->getValue()[1] : NULL,
+                    'from'          => !empty($condition->getValue()[0]) ? $condition->getValue()[0] : NULL,
+                    'to'            => !empty($condition->getValue()[1]) ? $condition->getValue()[1] : NULL,
                     'include_lower' => FALSE,
                     'include_upper' => FALSE,
                   ],

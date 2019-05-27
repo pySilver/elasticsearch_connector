@@ -5,6 +5,7 @@
  * Hooks provided by the ElasticSearch Connector module.
  */
 
+use Drupal\elasticsearch_connector\Entity\Cluster;
 use Drupal\search_api\Query\QueryInterface;
 use Drupal\search_api\Query\ResultSetInterface;
 
@@ -16,7 +17,7 @@ use Drupal\search_api\Query\ResultSetInterface;
  * @param \Drupal\elasticsearch_connector\Entity\Cluster $cluster
  *   Cluster entity.
  */
-function hook_elasticsearch_connector_load_library_options_alter(array &$options, \Drupal\elasticsearch_connector\Entity\Cluster $cluster) {
+function hook_elasticsearch_connector_load_library_options_alter(array &$options, Cluster $cluster) {
 }
 
 

@@ -12,7 +12,10 @@ use Symfony\Component\EventDispatcher\Event;
  */
 class PrepareDocumentIndexEvent extends Event {
 
-  const PREPARE_DOCUMENT_INDEX = 'elasticsearch_connector.prepare_document_index';
+  /**
+   * Event name.
+   */
+  public const PREPARE_DOCUMENT_INDEX = 'elasticsearch_connector.prepare_document_index';
 
   /**
    * Document to index.
@@ -20,13 +23,6 @@ class PrepareDocumentIndexEvent extends Event {
    * @var array
    */
   protected $document;
-
-  /**
-   * ElasticSearch Index Name.
-   *
-   * @var string
-   */
-  protected $indexName;
 
   /**
    * Search API Index.
@@ -40,24 +36,21 @@ class PrepareDocumentIndexEvent extends Event {
    *
    * @param array $document
    *   Documents to index.
-   * @param string $indexName
-   *   ElasticSearch Index Name.
    * @param \Drupal\search_api\IndexInterface $index
    *   Search API index.
    */
-  public function __construct(array $document, $indexName, IndexInterface $index) {
-    $this->document  = $document;
-    $this->indexName = $indexName;
-    $this->index     = $index;
+  public function __construct(array $document, IndexInterface $index) {
+    $this->document = $document;
+    $this->index = $index;
   }
 
   /**
    * Getter for the document array.
    *
    * @return array
-   *   document
+   *   Document.
    */
-  public function getDocument() {
+  public function getDocument(): array {
     return $this->document;
   }
 
@@ -69,16 +62,6 @@ class PrepareDocumentIndexEvent extends Event {
    */
   public function setDocument(array $document): void {
     $this->document = $document;
-  }
-
-  /**
-   * Getter for the index name.
-   *
-   * @return string
-   *   indexName
-   */
-  public function getIndexName(): string {
-    return $this->indexName;
   }
 
   /**

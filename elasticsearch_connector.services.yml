@@ -1,12 +1,14 @@
 services:
-  elasticsearch_connector.client_factory:
-    class: nodespark\DESConnector\ClientFactory
+  logger.channel.elasticsearch:
+    class: Drupal\Core\Logger\LoggerChannel
+    factory: logger.factory:get
+    arguments: ['elasticsearch']
 
   elasticsearch_connector.client_manager:
     class: Drupal\elasticsearch_connector\ElasticSearch\ClientManager
     arguments:
       - '@module_handler'
-      - '@elasticsearch_connector.client_factory'
+      - '@logger.channel.elasticsearch'
 
   elasticsearch_connector.cluster_manager:
     class: Drupal\elasticsearch_connector\ClusterManager

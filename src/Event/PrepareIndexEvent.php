@@ -12,7 +12,10 @@ use Symfony\Component\EventDispatcher\Event;
  */
 class PrepareIndexEvent extends Event {
 
-  const PREPARE_INDEX = 'elasticsearch_connector.prepare_index';
+  /**
+   * Event name.
+   */
+  public const PREPARE_INDEX = 'elasticsearch_connector.prepare_index';
 
   /**
    * Index Config.
@@ -20,13 +23,6 @@ class PrepareIndexEvent extends Event {
    * @var array
    */
   protected $indexConfig;
-
-  /**
-   * ElasticSearch Index Name.
-   *
-   * @var string
-   */
-  protected $indexName;
 
   /**
    * Search API Index.
@@ -40,14 +36,11 @@ class PrepareIndexEvent extends Event {
    *
    * @param array $indexConfig
    *   Index Config.
-   * @param string $indexName
-   *   ElasticSearch Index Name.
    * @param \Drupal\search_api\IndexInterface $index
    *   Search API index.
    */
-  public function __construct(array $indexConfig, $indexName, IndexInterface $index) {
+  public function __construct(array $indexConfig, IndexInterface $index) {
     $this->indexConfig = $indexConfig;
-    $this->indexName = $indexName;
     $this->index = $index;
   }
 
@@ -55,9 +48,9 @@ class PrepareIndexEvent extends Event {
    * Getter for the index config array.
    *
    * @return array
-   *   indexConfig
+   *   Index Config
    */
-  public function getIndexConfig() {
+  public function getIndexConfig(): array {
     return $this->indexConfig;
   }
 
@@ -69,16 +62,6 @@ class PrepareIndexEvent extends Event {
    */
   public function setIndexConfig(array $indexConfig): void {
     $this->indexConfig = $indexConfig;
-  }
-
-  /**
-   * Getter for the index name.
-   *
-   * @return string
-   *   indexName
-   */
-  public function getIndexName(): string {
-    return $this->indexName;
   }
 
   /**

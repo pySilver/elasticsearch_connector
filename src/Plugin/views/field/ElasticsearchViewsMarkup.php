@@ -1,6 +1,6 @@
 <?php
 
-namespace Drupal\elasticsearch_connector_views\Plugin\views\field;
+namespace Drupal\elasticsearch_connector\Plugin\views\field;
 
 use Drupal\views\Plugin\views\field\Markup;
 
@@ -9,7 +9,7 @@ use Drupal\views\Plugin\views\field\Markup;
  *
  * @ingroup views_field_handlers
  *
- * @ViewsField("elasticsearch_connector_views_markup")
+ * @ViewsField("elasticsearch_connector_markup")
  */
 class ElasticsearchViewsMarkup extends Markup {
 
