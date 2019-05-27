@@ -569,6 +569,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       $response = $type->addDocuments(
         $this->indexFactory::bulkIndex($index, $items)
       );
+      $this->client->getIndex($params['index'])->refresh();
 
       // If there were any errors, log them and throw an exception.
       if ($response->hasError()) {
