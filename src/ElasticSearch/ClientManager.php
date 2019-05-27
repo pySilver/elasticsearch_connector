@@ -6,9 +6,6 @@ use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\elasticsearch_connector\Entity\Cluster;
 use Elastica\Client;
-use Elastica\Exception\Connection\GuzzleException;
-use Elastica\Exception\Connection\HttpException;
-use Elastica\Exception\ConnectionException;
 
 /**
  * Class ClientManager.
