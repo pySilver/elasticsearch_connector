@@ -67,6 +67,13 @@ class SearchBuilder {
   protected $indexFields;
 
   /**
+   * Module Service.
+   *
+   * @var \Drupal\Core\Extension\ModuleHandlerInterface
+   */
+  protected $moduleHandler;
+
+  /**
    * ParameterBuilder constructor.
    *
    * @param \Drupal\search_api\Query\QueryInterface $query
@@ -78,6 +85,7 @@ class SearchBuilder {
     $this->esQuery = new Query();
     $this->esRootQuery = new BoolQuery();
     $this->indexFields = $this->getIndexFields();
+    $this->moduleHandler = \Drupal::moduleHandler();
   }
 
   /**
@@ -137,9 +145,14 @@ class SearchBuilder {
       }
       elseif ($field_id === 'search_api_random') {
         $random_sort_params = $this->query->getOption('search_api_random_sort', []);
+
+        // Allow modules to alter random sort params.
+        $this->moduleHandler->alter('elasticsearch_connector_search_api_random_sort', $random_sort_params);
         $seed = !empty($random_sort_params['seed']) ? $random_sort_params['seed'] : mt_rand();
+
         $query = new FunctionScore();
-        $query->addRandomScoreFunction($seed, $this->esRootQuery, NULL, '_id');
+        $query->addRandomScoreFunction($seed, NULL, NULL, '_seq_no');
+        $query->setQuery($this->esRootQuery);
         $this->esRootQuery = $query;
       }
       elseif (isset($index_fields[$field_id])) {
