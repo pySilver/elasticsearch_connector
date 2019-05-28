@@ -2,8 +2,9 @@
 
 namespace Drupal\elasticsearch_connector\Elasticsearch;
 
+use Drupal\Core\Entity\ContentEntityInterface;
+use Drupal\Core\Language\LanguageInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
-use Elastica\Document;
 use Elastica\Query;
 use Elastica\Query\AbstractQuery;
 use Elastica\Query\BoolQuery;
@@ -18,6 +19,7 @@ use Elastica\Query\SimpleQueryString;
 use Elastica\Query\Term;
 use Elastica\Query\Terms;
 use Drupal\search_api\SearchApiException;
+use Drupal\search_api\Utility\Utility as SearchApiUtility;
 use Drupal\search_api\Query\Condition;
 use Drupal\search_api\Query\ConditionGroupInterface;
 use Drupal\search_api\Query\QueryInterface;
@@ -506,7 +508,7 @@ class SearchBuilder {
    * @param string $fuzzyness
    *   Fuzzyness.
    *
-   * @return \Elastica\Query\BoolQuery|\Elastica\Query\MultiMatch
+   * @return \Elastica\Query\BoolQuery|\Elastica\Query\AbstractQuery
    *   Query.
    */
   protected function getFullTextFilter(
@@ -516,7 +518,7 @@ class SearchBuilder {
     string $conjunction,
     bool $negation,
     string $fuzzyness
-  ) {
+  ): AbstractQuery {
 
     if ($plugin_id === 'phrase') {
       if (count($fields) === 1) {
@@ -595,38 +597,86 @@ class SearchBuilder {
   /**
    * Sets More Like This query.
    */
-  protected function setMoreLikeThisQuery() {
-    $options = $this->query->getOption('search_api_mlt', []);
-    $params = IndexHelper::index($this->index);
-
-    if (empty($options)) {
+  protected function setMoreLikeThisQuery(): void {
+    $mlt_options = $this->query->getOption('search_api_mlt', []);
+    $index_params = IndexHelper::index($this->index);
+    if (empty($mlt_options)) {
       return;
     }
 
+    $language_ids = $this->query->getLanguages();
+    if (empty($language_ids)) {
+      // If the query isn't already restricted by languages we have to do it
+      // here in order to limit the MLT suggestions to be of the same language
+      // as the currently shown one.
+      $language_ids[] = \Drupal::languageManager()
+        ->getCurrentLanguage(LanguageInterface::TYPE_CONTENT)
+        ->getId();
+      // For non-translatable entity types, add the "not specified" language to
+      // the query so they also appear in the results.
+      $language_ids[] = LanguageInterface::LANGCODE_NOT_SPECIFIED;
+      $this->query->setLanguages($language_ids);
+    }
+
+    $ids = [];
+    foreach ($this->query->getIndex()->getDatasources() as $datasource) {
+      if ($entity_type_id = $datasource->getEntityTypeId()) {
+        $entity = \Drupal::entityTypeManager()
+          ->getStorage($entity_type_id)
+          ->load($mlt_options['id']);
+
+        if ($entity instanceof ContentEntityInterface) {
+          $translated = FALSE;
+          if ($entity->isTranslatable()) {
+            foreach ($language_ids as $language_id) {
+              if ($entity->hasTranslation($language_id)) {
+                $ids[] = SearchApiUtility::createCombinedId(
+                  $datasource->getPluginId(),
+                  $datasource->getItemId(
+                    $entity->getTranslation($language_id)->getTypedData()
+                  )
+                );
+                $translated = TRUE;
+              }
+            }
+          }
+
+          if (!$translated) {
+            // Fall back to the default language of the entity.
+            $ids[] = SearchApiUtility::createCombinedId(
+              $datasource->getPluginId(),
+              $datasource->getItemId($entity->getTypedData())
+            );
+          }
+        }
+        else {
+          $ids[] = $mlt_options['id'];
+        }
+      }
+    }
+
+    // Object fields support:
+    $fields = array_map([$this, 'getNestedPath'], $mlt_options['fields']);
+
     $mltQuery = new MoreLikeThis();
-    $mltQuery->setFields(array_values($options['fields']));
+    $mltQuery->setFields(array_values($fields));
 
-    if (isset($options['id'])) {
-      $mltQuery->setLike(new Document(
-        $options['id'],
-        [],
-        $params['type'],
-        $params['index']
-      ));
+    $documents = [];
+    foreach ($ids as $id) {
+      $documents[] = [
+        '_id'    => $id,
+        '_index' => $index_params['index'],
+        '_type'  => $index_params['type'],
+      ];
     }
-
-    if (isset($options['like'])) {
-      $mltQuery->setLike($options['like']);
-    }
-
-    if (isset($options['unlike'])) {
-      $mltQuery->setParam('unlike', $options['unlike']);
-    }
+    $mltQuery->setLike($documents);
 
     // TODO: Make this settings configurable in the view.
     $mltQuery->setMaxQueryTerms(3);
     $mltQuery->setMinDocFrequency(1);
     $mltQuery->setMinTermFrequency(1);
+
+    $this->esRootQuery->addMust($mltQuery);
   }
 
 }
