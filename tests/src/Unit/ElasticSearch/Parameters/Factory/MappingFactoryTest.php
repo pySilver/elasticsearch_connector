@@ -1,13 +1,13 @@
 <?php
 
-namespace Drupal\Tests\elasticsearch_connector\Unit\ElasticSearch\Parameters\Factory;
+namespace Drupal\Tests\elasticsearch_connector\Unit\Elasticsearch\Parameters\Factory;
 
 use Drupal\search_api\Item\FieldInterface;
 use Drupal\Tests\UnitTestCase;
-use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\MappingFactory;
+use Drupal\elasticsearch_connector\Elasticsearch\Parameters\Factory\MappingFactory;
 
 /**
- * @coversDefaultClass \Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\MappingFactory
+ * @coversDefaultClass \Drupal\elasticsearch_connector\Elasticsearch\Parameters\Factory\MappingFactory
  *
  * @group elasticsearch_connector
  */

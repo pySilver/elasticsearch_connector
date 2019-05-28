@@ -12,10 +12,12 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Link;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Url;
-use Drupal\elasticsearch_connector\ClusterManager;
-use Drupal\elasticsearch_connector\ElasticSearch\ClientManager;
-use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\IndexFactory;
-use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\SearchFactory;
+use Drupal\elasticsearch_connector\Elasticsearch\ClusterManager;
+use Drupal\elasticsearch_connector\Elasticsearch\ClientManager;
+use Drupal\elasticsearch_connector\Elasticsearch\SearchBuilder;
+use Drupal\elasticsearch_connector\Elasticsearch\IndexHelper;
+use Drupal\elasticsearch_connector\Event\BuildSearchQueryEvent;
+use Drupal\elasticsearch_connector\Utility\Utility;
 use Drupal\search_api\Backend\BackendPluginBase;
 use Drupal\search_api\IndexInterface;
 use Drupal\search_api\Query\QueryInterface;
@@ -31,6 +33,7 @@ use Elastica\Response;
 use Elastica\Search;
 use Elastica\Type;
 use Elastica\Type\Mapping;
+use Elastica\ResultSet as ElasticResultSet;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\Core\Plugin\PluginFormInterface;
@@ -113,14 +116,14 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   /**
    * Client manager service.
    *
-   * @var \Drupal\elasticsearch_connector\ElasticSearch\ClientManager
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\ClientManager
    */
   protected $clientManager;
 
   /**
    * The cluster manager service.
    *
-   * @var \Drupal\elasticsearch_connector\ClusterManager
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\ClusterManager
    */
   protected $clusterManager;
 
@@ -141,7 +144,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   /**
    * Elasticsearch index factory.
    *
-   * @var \Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\IndexFactory
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\IndexHelper
    */
   protected $indexFactory;
 
@@ -158,17 +161,17 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    *   Form builder service.
    * @param \Drupal\Core\Extension\ModuleHandlerInterface $module_handler
    *   Module handler service.
-   * @param \Drupal\elasticsearch_connector\ElasticSearch\ClientManager $client_manager
+   * @param \Drupal\elasticsearch_connector\Elasticsearch\ClientManager $client_manager
    *   Client manager service.
    * @param \Drupal\Core\Config\Config $elasticsearch_settings
    *   Elasticsearch settings object.
    * @param \Psr\Log\LoggerInterface $logger
    *   Logger.
-   * @param \Drupal\elasticsearch_connector\ClusterManager $cluster_manager
+   * @param \Drupal\elasticsearch_connector\Elasticsearch\ClusterManager $cluster_manager
    *   The cluster manager service.
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
    *   The entity type manager service.
-   * @param \Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\IndexFactory $indexFactory
+   * @param \Drupal\elasticsearch_connector\Elasticsearch\IndexHelper $indexFactory
    *   Index factory.
    * @param \Drupal\Core\Messenger\MessengerInterface $messenger
    *   Messenger service.
@@ -188,7 +191,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
     LoggerInterface $logger,
     ClusterManager $cluster_manager,
     EntityTypeManagerInterface $entity_type_manager,
-    IndexFactory $indexFactory,
+    IndexHelper $indexFactory,
     MessengerInterface $messenger
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
@@ -234,7 +237,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       $container->get('logger.channel.elasticsearch'),
       $container->get('elasticsearch_connector.cluster_manager'),
       $container->get('entity_type.manager'),
-      $container->get('elasticsearch_connector.index_factory'),
+      $container->get('elasticsearch_connector.index_helper'),
       $container->get('messenger')
     );
   }
@@ -368,6 +371,20 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   }
 
   /**
+   * {@inheritdoc}
+   */
+  public function getDiscouragedProcessors() {
+    return [
+      'ignorecase',
+      'snowball_stemmer',
+      'stemmer',
+      'stopwords',
+      'tokenizer',
+      'transliteration',
+    ];
+  }
+
+  /**
    * Get the configured cluster; if the cluster is blank, use the default.
    *
    * @return string
@@ -383,7 +400,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * @return string
    *   The configured fuzziness value.
    */
-  public function getFuzziness() {
+  public function getFuzziness(): string {
     return $this->configuration['fuzziness'];
   }
 
@@ -662,72 +679,141 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
     // Results.
     $search_result = $query->getResults();
 
-    // Get index.
-    $index = $query->getIndex();
-
-    $params = $this->indexFactory::index($index);
-
-    // Check Elasticsearch index.
-    if (!$this->client->getIndex($params['index'])
-      ->getType($params['type'])
-      ->exists()) {
-      return $search_result;
-    }
 
     // Add the facets to the request.
-    if ($query->getOption('search_api_facets')) {
-      $this->addFacets($query);
-    }
+    //    if ($query->getOption('search_api_facets')) {
+    //      $this->addFacets($query);
+    //    }
 
     // Build Elasticsearch query.
-    $params = SearchFactory::search($query);
 
     // Note that this requires fielddata option to be enabled.
     // @see ::getAutocompleteSuggestions()
-    // @see \Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\IndexFactory::mapping()
-    if ($incomplete_key = $query->getOption('autocomplete')) {
-      // Autocomplete suggestions are determined using a term aggregation (like
-      // facets), but filtered to only include facets with the right prefix.
-      // As the search facet field is analyzed, facets are tokenized terms and
-      // all in lower case. To match that, we need convert the our filter to
-      // lower case also.
-      $incomplete_key = strtolower($incomplete_key);
-      // Note that we cannot use the elasticsearch client aggregations API as
-      // it does not support the "include" parameter.
-      $params['body']['aggs']['autocomplete']['terms'] = [
-        'field'   => $query->getOption('autocomplete_field'),
-        'include' => $incomplete_key . '.*',
-        'size'    => $query->getOption('limit'),
-      ];
-    }
+    // @see \Drupal\elasticsearch_connector\Elasticsearch\IndexHelper::mapping()
+    //    if ($incomplete_key = $query->getOption('autocomplete')) {
+    //      // Autocomplete suggestions are determined using a term aggregation (like
+    //      // facets), but filtered to only include facets with the right prefix.
+    //      // As the search facet field is analyzed, facets are tokenized terms and
+    //      // all in lower case. To match that, we need convert the our filter to
+    //      // lower case also.
+    //      $incomplete_key = strtolower($incomplete_key);
+    //      // Note that we cannot use the elasticsearch client aggregations API as
+    //      // it does not support the "include" parameter.
+    //      $params['body']['aggs']['autocomplete']['terms'] = [
+    //        'field'   => $query->getOption('autocomplete_field'),
+    //        'include' => $incomplete_key . '.*',
+    //        'size'    => $query->getOption('limit'),
+    //      ];
+    //    }
 
     try {
       // Allow modules to alter the Elastic Search query.
+      $this->moduleHandler->alter('elasticsearch_connector_search_api_query', $query);
       $this->preQuery($query);
 
-      // Do search.
-      // TODO: Its all wrong
+      // Build Elasticsearch query.
+      $builder = new SearchBuilder($query);
+      $builder->build();
+      $elastic_query = $builder->getElasticQuery();
+
+      // Allow other modules to alter search query before we use it.
+      $this->moduleHandler->alter('elasticsearch_connector_elastic_search_query', $elastic_query, $query);
+      $dispatcher = \Drupal::service('event_dispatcher');
+      $prepareSearchQueryEvent = new BuildSearchQueryEvent($elastic_query, $query, $query->getIndex());
+      $event = $dispatcher->dispatch(BuildSearchQueryEvent::BUILD_QUERY, $prepareSearchQueryEvent);
+      $elastic_query = $event->getElasticQuery();
+
+
+      // Execute search.
+      $params = IndexHelper::index($query->getIndex());
       $search = new Search($this->client);
-      $search->addIndex($params['index']);
-      $search->addType($params['type']);
-      $response = $search->search($params)->getRawResponse();
-      $results = SearchFactory::parseResult($query, $response);
+      $search->addIndex($params['index'])->addType($params['type']);
+      $result_set = $search->search($elastic_query);
+      $results = self::parseResult($query, $result_set);
 
       // Handle the facets result when enabled.
-      if ($query->getOption('search_api_facets')) {
-        $this->parseFacets($results, $query);
-      }
+      //      if ($query->getOption('search_api_facets')) {
+      //        $this->parseFacets($results, $query);
+      //      }
 
       // Allow modules to alter the Elastic Search Results.
-      $this->moduleHandler->alter('elasticsearch_connector_search_results', $results, $query, $response);
-      $this->postQuery($results, $query, $response);
+      $this->moduleHandler->alter('elasticsearch_connector_search_results', $results, $query, $result_set);
+      $this->postQuery($results, $query, $result_set);
 
       return $results;
     }
     catch (\Exception $e) {
       watchdog_exception('Elasticsearch API', $e);
+      $this->messenger->addError($this->t('Search request failed.'));
       return $search_result;
     }
+  }
+
+  /**
+   * Parse a Elasticsearch response into a ResultSetInterface.
+   *
+   * TODO: Add excerpt handling.
+   *
+   * @param \Drupal\search_api\Query\QueryInterface $query
+   *   Search API query.
+   * @param \Elastica\ResultSet $result_set
+   *   ResultSet.
+   *
+   * @return \Drupal\search_api\Query\ResultSetInterface
+   *   The results of the search.
+   */
+  public static function parseResult(QueryInterface $query, ElasticResultSet $result_set) {
+    $index = $query->getIndex();
+    $fields = $index->getFields();
+
+    // Set up the results array.
+    $results = $query->getResults();
+    $results->setExtraData(
+      'elasticsearch_response',
+      $result_set->getResponse()->getData()
+    );
+    $results->setResultCount($result_set->getTotalHits());
+
+    /** @var \Drupal\search_api\Utility\FieldsHelper $fields_helper */
+    $fields_helper = \Drupal::getContainer()->get('search_api.fields_helper');
+
+    foreach ($result_set->getResults() as $result) {
+      $result = $result->getHit();
+      $result_item = $fields_helper->createItem($index, $result['_id']);
+      $result_item->setScore($result['_score']);
+
+      // Nested objects needs to be unwrapped before passing into fields.
+      $flatten_result = Utility::dot($result['_source'], '', '__');
+      foreach ($flatten_result as $result_key => $result_value) {
+        if (isset($fields[$result_key])) {
+          $field = clone $fields[$result_key];
+        }
+        else {
+          $field = $fields_helper->createField($index, $result_key);
+        }
+        $field->setValues((array) $result_value);
+        $result_item->setField($result_key, $field);
+      }
+
+      // Preserve complex fields defined in index as unwrapped.
+      foreach ($result['_source'] as $result_key => $result_value) {
+        if (
+          isset($fields[$result_key]) &&
+          in_array($fields[$result_key]->getType(), [
+            'object',
+            'nested_object',
+          ])
+        ) {
+          $field = clone $fields[$result_key];
+          $field->setValues((array) $result_value);
+          $result_item->setField($result_key, $field);
+        }
+      }
+
+      $results->addResultItem($result_item);
+    }
+
+    return $results;
   }
 
   /**

@@ -5,12 +5,11 @@ namespace Drupal\Tests\elasticsearch_connector\Unit;
 use Drupal\Core\Entity\EntityStorageInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\State\StateInterface;
-use Drupal\elasticsearch_connector\ClusterManager;
-use Drupal\elasticsearch_connector\Entity\Cluster;
+use Drupal\elasticsearch_connector\Elasticsearch\ClusterManager;
 use Drupal\Tests\UnitTestCase;
 
 /**
- * @coversDefaultClass \Drupal\elasticsearch_connector\ClusterManager
+ * @coversDefaultClass \Drupal\elasticsearch_connector\Elasticsearch\ClusterManager
  *
  * @group elasticsearch_connector
  */
@@ -19,7 +18,7 @@ class ClusterManagerTest extends UnitTestCase {
   /**
    * An instance of ClusterManager
    *
-   * @var \Drupal\elasticsearch_connector\ClusterManager
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\ClusterManager
    */
   protected $clusterManager;
 

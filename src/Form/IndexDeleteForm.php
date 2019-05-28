@@ -6,7 +6,7 @@ use Drupal\Core\Entity\EntityConfirmFormBase;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Messenger\MessengerInterface;
-use Drupal\elasticsearch_connector\ElasticSearch\ClientManager;
+use Drupal\elasticsearch_connector\Elasticsearch\ClientManager;
 use Drupal\Core\Url;
 use Elastica\Exception\NotFoundException;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -19,7 +19,7 @@ class IndexDeleteForm extends EntityConfirmFormBase {
   /**
    * Client manager service.
    *
-   * @var \Drupal\elasticsearch_connector\ElasticSearch\ClientManager
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\ClientManager
    */
   private $clientManager;
 
@@ -33,7 +33,7 @@ class IndexDeleteForm extends EntityConfirmFormBase {
   /**
    * ElasticsearchController constructor.
    *
-   * @param \Drupal\elasticsearch_connector\ElasticSearch\ClientManager $client_manager
+   * @param \Drupal\elasticsearch_connector\Elasticsearch\ClientManager $client_manager
    *   The client manager service.
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
    *   The entity type manager service.

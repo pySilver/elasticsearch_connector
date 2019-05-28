@@ -7,8 +7,8 @@ use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Url;
-use Drupal\elasticsearch_connector\ClusterManager;
-use Drupal\elasticsearch_connector\ElasticSearch\ClientManager;
+use Drupal\elasticsearch_connector\Elasticsearch\ClusterManager;
+use Drupal\elasticsearch_connector\Elasticsearch\ClientManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -19,7 +19,7 @@ class ClusterDeleteForm extends EntityConfirmFormBase {
   /**
    * Elasticsearch Client Manager.
    *
-   * @var \Drupal\elasticsearch_connector\ElasticSearch\ClientManager
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\ClientManager
    */
   private $clientManager;
 
@@ -36,7 +36,7 @@ class ClusterDeleteForm extends EntityConfirmFormBase {
   /**
    * The cluster manager service.
    *
-   * @var \Drupal\elasticsearch_connector\ClusterManager
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\ClusterManager
    */
   protected $clusterManager;
 
@@ -45,9 +45,9 @@ class ClusterDeleteForm extends EntityConfirmFormBase {
    *
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_manager
    *   The entity manager.
-   * @param \Drupal\elasticsearch_connector\ElasticSearch\ClientManager $client_manager
+   * @param \Drupal\elasticsearch_connector\Elasticsearch\ClientManager $client_manager
    *   The client manager.
-   * @param \Drupal\elasticsearch_connector\ClusterManager $cluster_manager
+   * @param \Drupal\elasticsearch_connector\Elasticsearch\ClusterManager $cluster_manager
    *   The cluster manager.
    * @param \Drupal\Core\Messenger\MessengerInterface $messenger
    *   Messenger service.

@@ -3,7 +3,7 @@
 namespace Drupal\elasticsearch_connector\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\elasticsearch_connector\ElasticSearch\ClientManager;
+use Drupal\elasticsearch_connector\Elasticsearch\ClientManager;
 use Drupal\elasticsearch_connector\Entity\Cluster;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -15,14 +15,14 @@ class ElasticsearchController extends ControllerBase {
   /**
    * Elasticsearch client manager service.
    *
-   * @var \Drupal\elasticsearch_connector\ElasticSearch\ClientManager
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\ClientManager
    */
   private $clientManager;
 
   /**
    * ElasticsearchController constructor.
    *
-   * @param \Drupal\elasticsearch_connector\ElasticSearch\ClientManager $client_manager
+   * @param \Drupal\elasticsearch_connector\Elasticsearch\ClientManager $client_manager
    *   Elasticsearch client manager service.
    */
   public function __construct(ClientManager $client_manager) {

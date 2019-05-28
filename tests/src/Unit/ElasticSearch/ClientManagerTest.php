@@ -1,9 +1,9 @@
 <?php
 
-namespace Drupal\Tests\elasticsearch_connector\Unit\ElasticSearch;
+namespace Drupal\Tests\elasticsearch_connector\Unit\Elasticsearch;
 
 use Drupal\Core\Extension\ModuleHandlerInterface;
-use Drupal\elasticsearch_connector\ElasticSearch\ClientManager;
+use Drupal\elasticsearch_connector\Elasticsearch\ClientManager;
 use Drupal\elasticsearch_connector\Entity\Cluster;
 use Drupal\Tests\UnitTestCase;
 use nodespark\DESConnector\ClientFactoryInterface;
@@ -11,7 +11,7 @@ use nodespark\DESConnector\ClientInterface;
 use Prophecy\Argument;
 
 /**
- * @coversDefaultClass \Drupal\elasticsearch_connector\ElasticSearch\ClientManager
+ * @coversDefaultClass \Drupal\elasticsearch_connector\Elasticsearch\ClientManager
  *
  * @group elasticsearch_connector
  */
@@ -20,7 +20,7 @@ class ClientManagerTest extends UnitTestCase {
   /**
    * An instance of ClientManager
    *
-   * @var \Drupal\elasticsearch_connector\ElasticSearch\ClientManager
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\ClientManager
    */
   protected $clientManager;
 

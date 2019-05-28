@@ -2,7 +2,7 @@
 
 /**
  * @file
- * Hooks provided by the ElasticSearch Connector module.
+ * Hooks provided by the Elasticsearch Connector module.
  */
 
 use Drupal\elasticsearch_connector\Entity\Cluster;

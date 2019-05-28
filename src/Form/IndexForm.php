@@ -5,8 +5,8 @@ namespace Drupal\elasticsearch_connector\Form;
 use Drupal\Core\Entity\EntityForm;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Messenger\MessengerInterface;
-use Drupal\elasticsearch_connector\ClusterManager;
-use Drupal\elasticsearch_connector\ElasticSearch\ClientManager;
+use Drupal\elasticsearch_connector\Elasticsearch\ClusterManager;
+use Drupal\elasticsearch_connector\Elasticsearch\ClientManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\Core\Form\FormStateInterface;
 
@@ -18,7 +18,7 @@ class IndexForm extends EntityForm {
   /**
    * Elasticsearch Client Manager.
    *
-   * @var \Drupal\elasticsearch_connector\ElasticSearch\ClientManager
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\ClientManager
    */
   private $clientManager;
 
@@ -35,7 +35,7 @@ class IndexForm extends EntityForm {
   /**
    * The cluster manager service.
    *
-   * @var \Drupal\elasticsearch_connector\ClusterManager
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\ClusterManager
    */
   protected $clusterManager;
 
@@ -44,9 +44,9 @@ class IndexForm extends EntityForm {
    *
    * @param \Drupal\Core\Entity\EntityManager|\Drupal\Core\Entity\EntityTypeManagerInterface $entity_manager
    *   The entity type manager.
-   * @param \Drupal\elasticsearch_connector\ElasticSearch\ClientManager $client_manager
+   * @param \Drupal\elasticsearch_connector\Elasticsearch\ClientManager $client_manager
    *   Client service.
-   * @param \Drupal\elasticsearch_connector\ClusterManager $cluster_manager
+   * @param \Drupal\elasticsearch_connector\Elasticsearch\ClusterManager $cluster_manager
    *   Cluster manager service.
    * @param \Drupal\Core\Messenger\MessengerInterface $messenger
    *   Messenger service.

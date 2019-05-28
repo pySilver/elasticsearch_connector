@@ -1,6 +1,6 @@
 <?php
 
-namespace Drupal\elasticsearch_connector\ElasticSearch;
+namespace Drupal\elasticsearch_connector\Elasticsearch;
 
 use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;

@@ -1,14 +1,14 @@
 <?php
 
-namespace Drupal\Tests\elasticsearch_connector\Unit\ElasticSearch\Parameters\Builder;
+namespace Drupal\Tests\elasticsearch_connector\Unit\Elasticsearch\Parameters\Builder;
 
 use Drupal\search_api\IndexInterface;
 use Drupal\search_api\Query\QueryInterface;
 use Drupal\Tests\UnitTestCase;
-use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Builder\SearchBuilder;
+use Drupal\elasticsearch_connector\Elasticsearch\Parameters\Builder\SearchBuilder;
 
 /**
- * @coversDefaultClass \Drupal\elasticsearch_connector\ElasticSearch\Parameters\Builder\SearchBuilder
+ * @coversDefaultClass \Drupal\elasticsearch_connector\Elasticsearch\Parameters\Builder\SearchBuilder
  *
  * @group elasticsearch_connector
  */
@@ -17,7 +17,7 @@ class SearchBuilderTest extends UnitTestCase {
   /**
    * An instance of the SearchBuilder class.
    *
-   * @var \Drupal\elasticsearch_connector\ElasticSearch\Parameters\Builder\SearchBuilder
+   * @var \Drupal\elasticsearch_connector\Elasticsearch\Parameters\Builder\SearchBuilder
    */
   protected $searchBuilder;
 
@@ -46,7 +46,7 @@ class SearchBuilderTest extends UnitTestCase {
    * @covers ::build
    */
   public function testBuild() {
-    // TODO Can't test because IndexFactory is hardcoded
+    // TODO Can't test because IndexHelper is hardcoded
     // instead of injected so it can't be mocked.
   }
 }

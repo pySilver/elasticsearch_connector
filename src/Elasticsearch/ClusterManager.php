@@ -1,6 +1,6 @@
 <?php
 
-namespace Drupal\elasticsearch_connector;
+namespace Drupal\elasticsearch_connector\Elasticsearch;
 
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\State\StateInterface;

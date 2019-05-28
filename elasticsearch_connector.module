@@ -441,7 +441,7 @@ function elasticsearch_connector_index_valid_load($index_name) {
  * Get the nodes stats from elasticsearch server.
  *
  * @param \Elasticsearch\Client $client
- *   ElasticSearch client object.
+ *   Elasticsearch client object.
  *
  * @return array
  *   Array with cluster stats.

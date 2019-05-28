@@ -1,8 +1,9 @@
 <?php
 
-namespace Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory;
+namespace Drupal\elasticsearch_connector\Elasticsearch;
 
 use Drupal\elasticsearch_connector\Event\PrepareDocumentIndexEvent;
+use Drupal\elasticsearch_connector\Event\PrepareMappingEvent;
 use Drupal\field\FieldConfigInterface;
 use Drupal\search_api\IndexInterface;
 use Drupal\search_api\Item\FieldInterface;
@@ -15,7 +16,7 @@ use Elastica\Document;
 /**
  * Create Elasticsearch Indices.
  */
-class IndexFactory {
+class IndexHelper {
 
   /**
    * Build parameters required to index.
@@ -108,7 +109,7 @@ class IndexFactory {
 
     foreach ($items as $id => $item) {
       $data = [
-        '_language' => $item->getLanguage(),
+        'search_api_language' => $item->getLanguage(),
       ];
 
       /** @var \Drupal\search_api\Item\FieldInterface $field */
@@ -210,14 +211,14 @@ class IndexFactory {
 
     // Map index fields.
     foreach ($index->getFields() as $field_id => $field_data) {
-      $properties[$field_id] = MappingFactory::mappingFromField($field_data);
+      $properties[$field_id] = self::mappingFromField($field_data);
       // Enable fielddata for fields that are used with autocompletion.
       if (isset($all_autocompletion_fields[$field_id])) {
         $properties[$field_id]['fielddata'] = TRUE;
       }
     }
 
-    $properties['_language'] = [
+    $properties['search_api_language'] = [
       'type' => 'keyword',
     ];
 
@@ -233,6 +234,95 @@ class IndexFactory {
     $mappingParams = $event->getIndexMappingParams();
 
     return $mappingParams;
+  }
+
+  /**
+   * Helper function. Get the elasticsearch mapping for a field.
+   *
+   * @param \Drupal\search_api\Item\FieldInterface $field
+   *   Field.
+   *
+   * @return array|null
+   *   Array of settings when a known field type is provided. Null otherwise.
+   */
+  public static function mappingFromField(FieldInterface $field) {
+    $type          = $field->getType();
+    $mappingConfig = NULL;
+
+    switch ($type) {
+      case 'text':
+        $mappingConfig = [
+          'type'   => 'text',
+          'boost'  => $field->getBoost(),
+          'fields' => [
+            'keyword' => [
+              'type'         => 'keyword',
+              'ignore_above' => 256,
+            ],
+          ],
+        ];
+        break;
+
+      case 'uri':
+      case 'string':
+      case 'token':
+        $mappingConfig = [
+          'type' => 'keyword',
+        ];
+        break;
+
+      case 'integer':
+      case 'duration':
+        $mappingConfig = [
+          'type' => 'integer',
+        ];
+        break;
+
+      case 'boolean':
+        $mappingConfig = [
+          'type' => 'boolean',
+        ];
+        break;
+
+      case 'decimal':
+        $mappingConfig = [
+          'type' => 'float',
+        ];
+        break;
+
+      case 'date':
+        $mappingConfig = [
+          'type'   => 'date',
+          'format' => 'strict_date_optional_time||epoch_second',
+        ];
+        break;
+
+      case 'attachment':
+        $mappingConfig = [
+          'type' => 'attachment',
+        ];
+        break;
+
+      case 'object':
+        $mappingConfig = [
+          'type' => 'object',
+        ];
+        break;
+
+      case 'nested_object':
+        $mappingConfig = [
+          'type' => 'nested',
+        ];
+        break;
+    }
+
+    // Allow other modules to alter mapping config before we create it.
+    $dispatcher          = \Drupal::service('event_dispatcher');
+    $prepareMappingEvent = new PrepareMappingEvent($mappingConfig, $type, $field);
+    $event               = $dispatcher->dispatch(PrepareMappingEvent::PREPARE_MAPPING, $prepareMappingEvent);
+    $mappingConfig       = $event->getMappingConfig();
+
+    return $mappingConfig;
   }
 
   /**

@@ -14,9 +14,7 @@
         }
     ],
     "require": {
-        "makinacorpus/php-lucene": "^1.0.2",
         "illuminate/support": "~5.8.18",
-        "ongr/elasticsearch-dsl": "^6.0.3",
         "ruflin/elastica": "dev-master"
     },
     "require-dev": {
@@ -31,10 +29,16 @@
     "license": "GPL-2.0+",
     "authors": [
         {
+            "name": "Antoni Martyniuk",
+            "email": "a.martyniuk@convertiser.com",
+            "homepage": "http://convertiser.com",
+            "role": "Fork Maintainer"
+        },
+        {
             "name": "Nikolay Ignatov",
             "email": "nignatov@nodespark.com",
             "homepage": "http://www.nodespark.com",
-            "role": "Creator and Maintainer"
+            "role": "Original creator"
         },
         {
             "name": "See other contributors",

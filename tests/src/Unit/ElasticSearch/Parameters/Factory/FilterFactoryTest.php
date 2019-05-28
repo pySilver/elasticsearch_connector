@@ -1,17 +1,17 @@
 <?php
 
-namespace Drupal\Tests\elasticsearch_connector\Unit\ElasticSearch\Parameters\Factory;
+namespace Drupal\Tests\elasticsearch_connector\Unit\Elasticsearch\Parameters\Factory;
 
 use Drupal\search_api\Query\Condition;
 use Drupal\Tests\UnitTestCase;
-use Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\FilterFactory;
+use Drupal\elasticsearch_connector\Elasticsearch\Parameters\Factory\FilterFactory;
 
 /**
  * This test is long because it tests a long method. It just repeats
  * the same pattern over and over where a condition is mocked to
  * test each of the ramifications.
  *
- * @coversDefaultClass \Drupal\elasticsearch_connector\ElasticSearch\Parameters\Factory\FilterFactory
+ * @coversDefaultClass \Drupal\elasticsearch_connector\Elasticsearch\Parameters\Factory\FilterFactory
  *
  * @group elasticsearch_connector
  */
