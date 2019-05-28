@@ -326,7 +326,6 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       'search_api_granular',
       'search_api_facets',
       'search_api_facets_operator_or',
-      'search_api_grouping',
       'search_api_mlt',
       'search_api_random_sort',
     ];
