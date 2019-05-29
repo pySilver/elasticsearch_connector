@@ -136,6 +136,12 @@ class SearchBuilder {
     $sort = [];
     $query_full_text_fields = $this->index->getFulltextFields();
 
+    // Autocomplete queries are always sorted by score.
+    if ($this->query->getOption('autocomplete') !== NULL) {
+      $this->esQuery->setSort(['_score' => 'desc']);
+      return;
+    }
+
     foreach ($this->query->getSorts() as $field_id => $direction) {
       $direction = mb_strtolower($direction);
 
@@ -408,7 +414,9 @@ class SearchBuilder {
    */
   protected function setFullTextFilters(): void {
     $keys = $this->query->getKeys();
-    if ($keys === NULL) {
+
+    // Autocomplete query handles filter differently.
+    if ($keys === NULL || $this->query->getOption('autocomplete')) {
       return;
     }
 
@@ -614,10 +622,10 @@ class SearchBuilder {
    */
   protected function setMoreLikeThisQuery(): void {
     $mlt_options = $this->query->getOption('search_api_mlt', []);
-    $index_params = IndexHelper::index($this->index);
     if (empty($mlt_options)) {
       return;
     }
+    $index_params = IndexHelper::index($this->index);
 
     $language_ids = $this->query->getLanguages();
     if (empty($language_ids)) {
@@ -712,9 +720,14 @@ class SearchBuilder {
     if (isset($search->getSuggesters()['server'])) {
       $agg_field = $options['field'];
       $query_field = sprintf('%s.autocomplete', $agg_field);
+      $include = sprintf(
+        '%s.*',
+        !empty($incomplete_key) ? $incomplete_key : $user_input
+      );
 
       $agg = new TermsAggregation('autocomplete');
       $agg->setField($agg_field);
+      $agg->setInclude($include);
       $agg->setSize($search->getSuggesterLimits()['server']);
 
       $match = new Match($query_field, $user_input);

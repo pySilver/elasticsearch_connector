@@ -661,13 +661,22 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
 
       // Parse suggestions out of the response.
       $suggestions = [];
-      $factory = new SuggestionFactory($user_input);
+      $suggestion_factory = new SuggestionFactory($user_input);
       $result_set = $result->getExtraData('elasticsearch_response');
       $aggregation = $result_set->getAggregation('autocomplete');
 
+      $autocomplete_terms = [];
       foreach ($aggregation['buckets'] as $bucket) {
-        $suggestions[] = $factory->createFromSuggestedKeys($bucket['key'], $bucket['doc_count']);
+        if ($bucket['key'] !== $incomplete_key) {
+          $autocomplete_terms[$bucket['key']] = $bucket['doc_count'];
+        }
       }
+
+      foreach ($autocomplete_terms as $term => $count) {
+        $suggestion_suffix = mb_substr($term, mb_strlen($incomplete_key));
+        $suggestions[] = $suggestion_factory->createFromSuggestionSuffix($suggestion_suffix, $count);
+      }
+
       return $suggestions;
     }
     catch (\Exception $e) {
