@@ -18,6 +18,7 @@ use Elastica\Query\Range;
 use Elastica\Query\SimpleQueryString;
 use Elastica\Query\Term;
 use Elastica\Query\Terms;
+use Elastica\Aggregation\Terms as TermsAggregation;
 use Drupal\search_api\SearchApiException;
 use Drupal\search_api\Utility\Utility as SearchApiUtility;
 use Drupal\search_api\Query\Condition;
@@ -99,6 +100,7 @@ class SearchBuilder {
     $this->setFullTextFilters();
     $this->setExcludedSourceFields();
     $this->setMoreLikeThisQuery();
+    $this->setAutocompleteAggs();
     $this->setSort();
 
     // TODO: Suggestion query.
@@ -535,7 +537,7 @@ class SearchBuilder {
 
     if ($plugin_id === 'phrase') {
       if (count($fields) === 1) {
-        $field = array_push($fields);
+        $field = array_shift($fields);
         $query = new MatchPhrase($field, $query_string);
         $query->setFieldParam($field, 'zero_terms_query', Match::ZERO_TERM_ALL);
       }
@@ -561,7 +563,7 @@ class SearchBuilder {
     }
 
     if (count($fields) === 1) {
-      $field = array_push($fields);
+      $field = array_shift($fields);
       $query = new Match($field, $query_string);
       $query->setFieldFuzziness($field, $fuzzyness);
       $query->setFieldZeroTermsQuery($field, Match::ZERO_TERM_ALL);
@@ -690,6 +692,42 @@ class SearchBuilder {
     $mltQuery->setMinTermFrequency(1);
 
     $this->esRootQuery->addMust($mltQuery);
+  }
+
+  /**
+   * Sets autocomplete aggregations.
+   */
+  public function setAutocompleteAggs(): void {
+    $options = $this->query->getOption('autocomplete');
+    /** @var \Drupal\search_api_autocomplete\Entity\Search $search */
+    $search = $options['search'];
+
+    $incomplete_key = $options['incomplete_key'];
+    $user_input = $options['user_input'];
+    if (empty($user_input)) {
+      return;
+    }
+
+    // Aggregate suggestions.
+    if (isset($search->getSuggesters()['server'])) {
+      $agg_field = $options['field'];
+      $query_field = sprintf('%s.autocomplete', $agg_field);
+
+      $agg = new TermsAggregation('autocomplete');
+      $agg->setField($agg_field);
+      $agg->setSize($search->getSuggesterLimits()['server']);
+
+      $match = new Match($query_field, $user_input);
+
+      $this->esRootQuery->addMust($match);
+      $this->esQuery->addAggregation($agg);
+      $this->esQuery->setSize(0);
+    }
+
+    // Enable live results for the same query:
+    if (isset($search->getSuggesters()['live_results'])) {
+      $this->esQuery->setSize($search->getSuggesterLimits()['live_results']);
+    }
   }
 
 }

@@ -24,7 +24,6 @@ use Drupal\search_api\Query\QueryInterface;
 use Drupal\search_api\Query\ResultSet;
 use Drupal\search_api\Query\ResultSetInterface;
 use Drupal\search_api\SearchApiException;
-use Drupal\search_api_autocomplete\SearchApiAutocompleteSearchInterface;
 use Drupal\search_api_autocomplete\SearchInterface;
 use Drupal\search_api_autocomplete\Suggestion\SuggestionFactory;
 use Elastica\Exception\ConnectionException;
@@ -42,9 +41,6 @@ use Drupal\search_api\Plugin\PluginFormTrait;
 /**
  * Elasticsearch Search API Backend definition.
  *
- * TODO: Check for dependencies and remove them in order to properly test the
- * code.
- *
  * @SearchApiBackend(
  *   id = "elasticsearch",
  *   label = @Translation("Elasticsearch"),
@@ -56,11 +52,6 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   use PluginFormTrait;
 
   /**
-   * Set a large integer to be the size for a "Hard limit" value of "No limit".
-   */
-  const FACET_NO_LIMIT_SIZE = 10000;
-
-  /**
    * Auto fuzziness setting.
    *
    * Auto fuzziness in Elasticsearch means we don't specify a specific
@@ -69,7 +60,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    *
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/5.6/common-options.html#fuzziness
    */
-  const FUZZINESS_AUTO = 'auto';
+  public const FUZZINESS_AUTO = 'auto';
 
   /**
    * Elasticsearch settings.
@@ -631,37 +622,51 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   }
 
   /**
-   * Implements SearchApiAutocompleteInterface::getAutocompleteSuggestions().
+   * Implements AutocompleteBackendInterface::getAutocompleteSuggestions().
    *
    * Note that the interface is not directly implemented to avoid a dependency
    * on search_api_autocomplete module.
+   *
+   * @param \Drupal\search_api\Query\QueryInterface $query
+   *   Query object.
+   * @param \Drupal\search_api_autocomplete\SearchInterface $search
+   *   Search object.
+   * @param string $incomplete_key
+   *   Incomplete user input.
+   * @param string $user_input
+   *   User input.
+   *
+   * @return array
+   *   List of suggestions.
    */
-  public function getAutocompleteSuggestions(QueryInterface $query, SearchInterface $search, $incomplete_key, $user_input) {
+  public function getAutocompleteSuggestions(QueryInterface $query, SearchInterface $search, $incomplete_key, $user_input): ?array {
     try {
-      $fields = $this->getQueryFulltextFields($query);
+      $fields = $query->getFulltextFields();
       if (count($fields) > 1) {
         throw new \LogicException('Elasticsearch requires a single fulltext field for use with autocompletion! Please adjust your configuration.');
       }
-      $query->setOption('autocomplete', $incomplete_key);
-      $query->setOption('autocomplete_field', reset($fields));
+      $query->setOption('autocomplete', [
+        'incomplete_key' => $incomplete_key,
+        'user_input'     => $user_input,
+        'search'         => $search,
+        'field'          => array_shift($fields),
+      ]);
 
+      // TODO: move this check inside facets!
       // Disable facets so it does not collide with autocompletion results.
       $query->setOption('search_api_facets', FALSE);
 
       $result = $this->search($query);
-      $query->postExecute($result);
+      $query->postExecute();
 
       // Parse suggestions out of the response.
       $suggestions = [];
       $factory = new SuggestionFactory($user_input);
+      $result_set = $result->getExtraData('elasticsearch_response');
+      $aggregation = $result_set->getAggregation('autocomplete');
 
-      $response = $result->getExtraData('elasticsearch_response');
-      if (isset($response['aggregations']['autocomplete']['buckets'])) {
-        $suffix_start = strlen($user_input);
-        $buckets = $response['aggregations']['autocomplete']['buckets'];
-        foreach ($buckets as $bucket) {
-          $suggestions[] = $factory->createFromSuggestionSuffix(substr($bucket['key'], $suffix_start), $bucket['doc_count']);
-        }
+      foreach ($aggregation['buckets'] as $bucket) {
+        $suggestions[] = $factory->createFromSuggestedKeys($bucket['key'], $bucket['doc_count']);
       }
       return $suggestions;
     }
@@ -675,37 +680,14 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * {@inheritdoc}
    */
   public function search(QueryInterface $query) {
-    // Results.
-    $search_result = $query->getResults();
-
-
     // Add the facets to the request.
     //    if ($query->getOption('search_api_facets')) {
     //      $this->addFacets($query);
     //    }
 
     // Build Elasticsearch query.
-
-    // Note that this requires fielddata option to be enabled.
-    // @see ::getAutocompleteSuggestions()
-    // @see \Drupal\elasticsearch_connector\Elasticsearch\IndexHelper::mapping()
-    //    if ($incomplete_key = $query->getOption('autocomplete')) {
-    //      // Autocomplete suggestions are determined using a term aggregation (like
-    //      // facets), but filtered to only include facets with the right prefix.
-    //      // As the search facet field is analyzed, facets are tokenized terms and
-    //      // all in lower case. To match that, we need convert the our filter to
-    //      // lower case also.
-    //      $incomplete_key = strtolower($incomplete_key);
-    //      // Note that we cannot use the elasticsearch client aggregations API as
-    //      // it does not support the "include" parameter.
-    //      $params['body']['aggs']['autocomplete']['terms'] = [
-    //        'field'   => $query->getOption('autocomplete_field'),
-    //        'include' => $incomplete_key . '.*',
-    //        'size'    => $query->getOption('limit'),
-    //      ];
-    //    }
-
     try {
+
       // Allow modules to alter the Elastic Search query.
       $this->moduleHandler->alter('elasticsearch_connector_search_api_query', $query);
       $this->preQuery($query);
@@ -744,7 +726,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
     catch (\Exception $e) {
       watchdog_exception('Elasticsearch API', $e);
       $this->messenger->addError($this->t('Search request failed.'));
-      return $search_result;
+      return $query->getResults();
     }
   }
 
@@ -761,16 +743,13 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * @return \Drupal\search_api\Query\ResultSetInterface
    *   The results of the search.
    */
-  public static function parseResult(QueryInterface $query, ElasticResultSet $result_set) {
+  public static function parseResult(QueryInterface $query, ElasticResultSet $result_set): ResultSetInterface {
     $index = $query->getIndex();
     $fields = $index->getFields();
 
     // Set up the results array.
     $results = $query->getResults();
-    $results->setExtraData(
-      'elasticsearch_response',
-      $result_set->getResponse()->getData()
-    );
+    $results->setExtraData('elasticsearch_response', $result_set);
     $results->setResultCount($result_set->getTotalHits());
 
     /** @var \Drupal\search_api\Utility\FieldsHelper $fields_helper */
@@ -846,7 +825,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
           // Limit the number of facets in the result according the to facet
           // setting. A limit of 0 means no limit. Elasticsearch doesn't have a
           // way to set no limit, so we set a large integer in that case.
-          $size = $facet['limit'] ? $facet['limit'] : self::FACET_NO_LIMIT_SIZE;
+          $size = $facet['limit'] ? $facet['limit'] : 10000;
           $object->setSize($size);
 
           // Set global scope for facets with 'OR' operator.
