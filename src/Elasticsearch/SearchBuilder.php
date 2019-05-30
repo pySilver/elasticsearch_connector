@@ -18,6 +18,9 @@ use Elastica\Query\Range;
 use Elastica\Query\SimpleQueryString;
 use Elastica\Query\Term;
 use Elastica\Query\Terms;
+use Elastica\Suggest;
+use Elastica\Suggest\CandidateGenerator\DirectGenerator;
+use Elastica\Suggest\Phrase;
 use Elastica\Aggregation\Terms as TermsAggregation;
 use Drupal\search_api\SearchApiException;
 use Drupal\search_api\Utility\Utility as SearchApiUtility;
@@ -103,9 +106,8 @@ class SearchBuilder {
     $this->setAutocompleteAggs();
     $this->setSort();
 
-    // TODO: Suggestion query.
+    // TODO: Did you mean suggestion query.
     // TODO: Aggregation query.
-    // TODO: Autocompletion query.
     $this->esQuery->setQuery($this->esRootQuery);
   }
 
@@ -716,8 +718,8 @@ class SearchBuilder {
       return;
     }
 
-    // Aggregate suggestions.
     if (isset($search->getSuggesters()['server'])) {
+      // Aggregate suggestions.
       $agg_field = $options['field'];
       $query_field = sprintf('%s.autocomplete', $agg_field);
       $include = sprintf(
@@ -735,7 +737,28 @@ class SearchBuilder {
       $this->esRootQuery->addMust($match);
       $this->esQuery->addAggregation($agg);
       $this->esQuery->setSize(0);
+
+      // Retrieve spelling phrase single suggestion.
+      $trigram_field = sprintf('%s.suggestion_trigram', $options['field']);
+      $trigram_generator = new DirectGenerator($trigram_field);
+      $trigram_generator->setSuggestMode(DirectGenerator::SUGGEST_MODE_ALWAYS);
+
+      $reverse_field = sprintf('%s.suggestion_reverse', $options['field']);
+      $reverse_generator = new DirectGenerator($reverse_field);
+      $reverse_generator->setSuggestMode(DirectGenerator::SUGGEST_MODE_ALWAYS);
+      $reverse_generator->setPreFilter('suggestion_reverse');
+      $reverse_generator->setPostFilter('suggestion_reverse');
+
+      $suggestion = new Phrase('autocomplete', $trigram_field);
+      $suggestion->setSize(1);
+      $suggestion->setText($user_input);
+      $suggestion->addCandidateGenerator($trigram_generator);
+      $suggestion->addCandidateGenerator($reverse_generator);
+
+      $suggest = new Suggest($suggestion);
+      $this->esQuery->setSuggest($suggest);
     }
+
 
     // Enable live results for the same query:
     if (isset($search->getSuggesters()['live_results'])) {

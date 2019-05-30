@@ -652,29 +652,33 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
         'field'          => array_shift($fields),
       ]);
 
-      // TODO: move this check inside facets!
-      // Disable facets so it does not collide with autocompletion results.
-      $query->setOption('search_api_facets', FALSE);
-
       $result = $this->search($query);
       $query->postExecute();
+      /** @var \Elastica\ResultSet $result_set */
+      $result_set = $result->getExtraData('elasticsearch_response');
+      if (!$result_set instanceof ElasticResultSet) {
+        return [];
+      }
+      $aggregation = $result_set->getAggregation('autocomplete');
 
       // Parse suggestions out of the response.
       $suggestions = [];
       $suggestion_factory = new SuggestionFactory($user_input);
-      $result_set = $result->getExtraData('elasticsearch_response');
-      $aggregation = $result_set->getAggregation('autocomplete');
-
-      $autocomplete_terms = [];
       foreach ($aggregation['buckets'] as $bucket) {
         if ($bucket['key'] !== $incomplete_key) {
-          $autocomplete_terms[$bucket['key']] = $bucket['doc_count'];
+          $suggestion_suffix = mb_substr($bucket['key'], mb_strlen($incomplete_key));
+          $suggestions[] = $suggestion_factory->createFromSuggestionSuffix($suggestion_suffix, $bucket['doc_count']);
         }
       }
 
-      foreach ($autocomplete_terms as $term => $count) {
-        $suggestion_suffix = mb_substr($term, mb_strlen($incomplete_key));
-        $suggestions[] = $suggestion_factory->createFromSuggestionSuffix($suggestion_suffix, $count);
+      // Spelling suggestions.
+      if (isset($result_set->getSuggests()['autocomplete'])) {
+        $spelling_suggestions = $result_set->getSuggests()['autocomplete'];
+        foreach ($spelling_suggestions as $spelling_suggestion) {
+          foreach ($spelling_suggestion['options'] as $phrase) {
+            $suggestions[] = $suggestion_factory->createFromSuggestedKeys($phrase['text']);
+          }
+        }
       }
 
       return $suggestions;
@@ -689,6 +693,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * {@inheritdoc}
    */
   public function search(QueryInterface $query) {
+    // TODO: Do not setup any facets for autocomplete query!
     // Add the facets to the request.
     //    if ($query->getOption('search_api_facets')) {
     //      $this->addFacets($query);
