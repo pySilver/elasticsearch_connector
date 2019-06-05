@@ -22,6 +22,10 @@ use Elastica\Suggest;
 use Elastica\Suggest\CandidateGenerator\DirectGenerator;
 use Elastica\Suggest\Phrase;
 use Elastica\Aggregation\Terms as TermsAggregation;
+use Elastica\Aggregation\Histogram as HistogramAggregation;
+use Elastica\Aggregation\DateHistogram as DateHistogramAggregation;
+use Elastica\Aggregation\GlobalAggregation;
+use Drupal\facets\Plugin\facets\query_type\SearchApiDate;
 use Drupal\search_api\SearchApiException;
 use Drupal\search_api\Utility\Utility as SearchApiUtility;
 use Drupal\search_api\Query\Condition;
@@ -104,10 +108,10 @@ class SearchBuilder {
     $this->setExcludedSourceFields();
     $this->setMoreLikeThisQuery();
     $this->setAutocompleteAggs();
+    $this->setFacets();
     $this->setSort();
 
-    // TODO: Did you mean suggestion query.
-    // TODO: Aggregation query.
+    // TODO: Location query.
     $this->esQuery->setQuery($this->esRootQuery);
   }
 
@@ -707,7 +711,7 @@ class SearchBuilder {
   /**
    * Sets autocomplete aggregations.
    */
-  public function setAutocompleteAggs(): void {
+  protected function setAutocompleteAggs(): void {
     $options = $this->query->getOption('autocomplete');
     /** @var \Drupal\search_api_autocomplete\Entity\Search $search */
     $search = $options['search'];
@@ -764,6 +768,120 @@ class SearchBuilder {
     if (isset($search->getSuggesters()['live_results'])) {
       $this->esQuery->setSize($search->getSuggesterLimits()['live_results']);
     }
+  }
+
+  /**
+   * Returns granularity for Facets API date histogram.
+   *
+   * @param int $granularity
+   *   Granularity.
+   *
+   * @return string
+   *   Granularity supported by Elasticsearch date histogram aggregation.
+   *
+   * @see: \Drupal\facets\Plugin\facets\query_type\SearchApiDate
+   */
+  protected function getFacetApiDateGranularity($granularity): string {
+    switch ($granularity) {
+      case SearchApiDate::FACETAPI_DATE_YEAR:
+        $ret = 'year';
+        break;
+
+      case SearchApiDate::FACETAPI_DATE_MONTH:
+        $ret = 'month';
+        break;
+
+      case SearchApiDate::FACETAPI_DATE_DAY:
+        $ret = 'day';
+        break;
+
+      case SearchApiDate::FACETAPI_DATE_HOUR:
+        $ret = 'hour';
+        break;
+
+      case SearchApiDate::FACETAPI_DATE_MINUTE:
+        $ret = 'minute';
+        break;
+
+      case SearchApiDate::FACETAPI_DATE_SECOND:
+        $ret = 'second';
+        break;
+
+      default:
+        $ret = 'month';
+        break;
+    }
+
+    return $ret;
+  }
+
+  /**
+   * Sets facets.
+   */
+  protected function setFacets(): void {
+    $facets = $this->query->getOption('search_api_facets', []);
+
+    // Do not build aggregations for autocomplete queries.
+    if (empty($facets) || $this->query->getOption('autocomplete') !== NULL) {
+      return;
+    }
+
+    foreach ($facets as $facet_id => $facet) {
+      $agg = NULL;
+
+      switch ($facet['query_type']) {
+        case 'search_api_granular':
+          if (isset($facet['date_display'])) {
+            $agg = new DateHistogramAggregation(
+              $facet_id,
+              $facet['field'],
+              $this->getFacetApiDateGranularity($facet['granularity'])
+            );
+          }
+          else {
+            $agg = new HistogramAggregation($facet_id, $facet['field'], $facet['granularity']);
+            if (is_numeric($facet['min_value']) && is_numeric($facet['max_value'])) {
+              $agg->setParam('setExtendedBounds', [
+                'min' => $facet['min_value'],
+                'max' => $facet['max_value'],
+              ]);
+            }
+          }
+          break;
+
+        case 'search_api_string':
+        default:
+          $agg = new TermsAggregation($facet_id);
+          $agg->setField($facet['field']);
+          $agg->setMinimumDocumentCount($facet['min_count']);
+          if ($facet['limit'] > 0) {
+            $agg->setSize($facet['limit']);
+          }
+
+          if ($facet['missing']) {
+            $agg->setParam('missing', '');
+          }
+
+          break;
+      }
+
+      if ($agg === NULL) {
+        continue;
+      }
+
+      // Ignore query filter for "OR" operator.
+      // @see: https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations-bucket-global-aggregation.html
+      if ($facet['operator'] === 'or') {
+        $global_agg = new GlobalAggregation($facet_id);
+        $global_agg->addAggregation($agg);
+        $this->esQuery->addAggregation($global_agg);
+      }
+      else {
+        $this->esQuery->addAggregation($agg);
+      }
+
+    }
+
   }
 
 }

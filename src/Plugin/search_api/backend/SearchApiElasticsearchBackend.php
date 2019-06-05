@@ -693,11 +693,6 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * {@inheritdoc}
    */
   public function search(QueryInterface $query) {
-    // TODO: Do not setup any facets for autocomplete query!
-    // Add the facets to the request.
-    //    if ($query->getOption('search_api_facets')) {
-    //      $this->addFacets($query);
-    //    }
 
     // Build Elasticsearch query.
     try {
@@ -725,11 +720,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       $search->addIndex($params['index'])->addType($params['type']);
       $result_set = $search->search($elastic_query);
       $results = self::parseResult($query, $result_set);
-
-      // Handle the facets result when enabled.
-      //      if ($query->getOption('search_api_facets')) {
-      //        $this->parseFacets($results, $query);
-      //      }
+      self::parseFacets($query, $result_set);
 
       // Allow modules to alter the Elastic Search Results.
       $this->moduleHandler->alter('elasticsearch_connector_search_results', $results, $query, $result_set);
@@ -809,106 +800,50 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   }
 
   /**
+   * Parse the result set and add the facet values.
+   *
+   * @param \Drupal\search_api\Query\QueryInterface $query
+   *   Search API query.
+   * @param \Elastica\ResultSet $result_set
+   *   ResultSet.
+   */
+  public static function parseFacets(QueryInterface $query, ElasticResultSet $result_set) {
+    if (!$result_set->hasAggregations()) {
+      return;
+    }
+
+    $facets = $query->getOption('search_api_facets', []);
+    $search_api_facets = [];
+    $aggregations = $result_set->getAggregations();
+
+    foreach ($facets as $facet_id => $facet) {
+      if (!isset($aggregations[$facet_id])) {
+        continue;
+      }
+
+      $terms = [];
+      $buckets = $aggregations[$facet_id][$facet_id]['buckets'];
+      array_walk($buckets, static function ($value) use (&$terms, $facet) {
+        if ($value['doc_count'] >= $facet['min_count']) {
+          $terms[] = [
+            'count'  => $value['doc_count'],
+            'filter' => $value['key'] !== '' ? '"' . $value['key'] . '"' : '!',
+          ];
+        }
+      });
+
+      $search_api_facets[$facet_id] = $terms;
+    }
+
+    $results = $query->getResults();
+    $results->setExtraData('search_api_facets', $search_api_facets);
+  }
+
+  /**
    * {@inheritdoc}
    */
   public function isAvailable() {
     return $this->client->hasConnection();
-  }
-
-  /**
-   * Fill the aggregation array of the request.
-   *
-   * @param \Drupal\search_api\Query\QueryInterface $query
-   *   Search API query.
-   */
-  protected function addFacets(QueryInterface $query) {
-    foreach ($query->getOption('search_api_facets') as $key => $facet) {
-      $facet += ['type' => NULL];
-
-      $object = NULL;
-
-      // @todo Add more options.
-      switch ($facet['type']) {
-        case 'stats':
-          $object = new Stats($key, $key);
-          break;
-
-        default:
-          $object = new Terms($key, $key);
-
-          // Limit the number of facets in the result according the to facet
-          // setting. A limit of 0 means no limit. Elasticsearch doesn't have a
-          // way to set no limit, so we set a large integer in that case.
-          $size = $facet['limit'] ? $facet['limit'] : 10000;
-          $object->setSize($size);
-
-          // Set global scope for facets with 'OR' operator.
-          if ($facet['operator'] == 'or') {
-            $object->setGlobalScope(TRUE);
-          }
-      }
-
-      if (!empty($object)) {
-        $this->client->aggregations()->setAggregation($object);
-      }
-    }
-  }
-
-  /**
-   * Parse the result set and add the facet values.
-   *
-   * @param \Drupal\search_api\Query\ResultSet $results
-   *   Result set, all items matched in a search.
-   * @param \Drupal\search_api\Query\QueryInterface $query
-   *   Search API query object.
-   */
-  protected function parseFacets(ResultSet $results, QueryInterface $query) {
-    $response = $results->getExtraData('elasticsearch_response');
-    $facets = $query->getOption('search_api_facets');
-
-    // Create an empty array that will be attached to the result object.
-    $attach = [];
-
-    foreach ($facets as $key => $facet) {
-      $terms = [];
-
-      // Handle 'and' operator.
-      if ($facet['operator'] === 'and' || ($facet['operator'] === 'or' && !isset($response['aggregations'][$key . '_global']))) {
-        if (!empty($facet['type']) && $facet['type'] === 'stats') {
-          $terms = $response['aggregations'][$key];
-        }
-        else {
-          $buckets = $response['aggregations'][$key]['buckets'];
-          array_walk($buckets, static function ($value) use (&$terms, $facet) {
-            if ($value['doc_count'] >= $facet['min_count']) {
-              $terms[] = [
-                'count'  => $value['doc_count'],
-                'filter' => '"' . $value['key'] . '"',
-              ];
-            }
-          });
-        }
-      }
-      elseif ($facet['operator'] === 'or') {
-        if (!empty($facet['type']) && $facet['type'] === 'stats') {
-          $terms = $response['aggregations'][$key . '_global'];
-        }
-        else {
-          $buckets = $response['aggregations'][$key . '_global'][$key]['buckets'];
-          array_walk($buckets, static function ($value) use (&$terms, $facet) {
-            if ($value['doc_count'] >= $facet['min_count']) {
-              $terms[] = [
-                'count'  => $value['doc_count'],
-                'filter' => '"' . $value['key'] . '"',
-              ];
-            }
-          });
-        }
-      }
-      $attach[$key] = $terms;
-    }
-
-    $results->setExtraData('search_api_facets', $attach);
   }
 
   /**
@@ -932,333 +867,6 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
     // Prepend environment prefix.
     $id = $this->elasticsearchSettings->get('index_prefix') . $id;
     return $id;
-  }
-
-  /**
-   * Helper function. Return date gap from two dates or timestamps.
-   *
-   * @param mixed $min
-   *   Start date or timestamp.
-   * @param mixed $max
-   *   End date or timestamp.
-   * @param bool $timestamp
-   *   TRUE if the first two params are timestamps, FALSE otherwise. In the case
-   *   of FALSE, it's assumed the first two arguments are strings and they are
-   *   converted to timestamps using strtotime().
-   *
-   * @return string
-   *   One of 'NONE', 'YEAR', 'MONTH', or 'DAY' depending on the difference
-   *
-   * @see facetapi_get_timestamp_gap()
-   */
-  protected static function getDateGap($min, $max, $timestamp = TRUE) {
-    if ($timestamp !== TRUE) {
-      $min = strtotime($min);
-      $max = strtotime($max);
-    }
-
-    if (empty($min) || empty($max)) {
-      return 'DAY';
-    }
-
-    $diff = $max - $min;
-
-    switch (TRUE) {
-      case ($diff > 86400 * 365):
-        return 'NONE';
-
-      case ($diff > 86400 * gmdate('t', $min)):
-        return 'YEAR';
-
-      case ($diff > 86400):
-        return 'MONTH';
-
-      default:
-        return 'DAY';
-    }
-  }
-
-  /**
-   * Helper function build facets in search.
-   *
-   * @param array $params
-   *   Array of parameters to be sent in the body of a _search endpoint
-   *   Elasticsearch request.
-   * @param \Drupal\search_api\Query\QueryInterface $query
-   *   Search API query object.
-   */
-  protected function addSearchFacets(array &$params, QueryInterface $query) {
-
-    // Search API facets.
-    $facets = $query->getOption('search_api_facets');
-    $index_fields = $this->getIndexFields($query);
-
-    if (!empty($facets)) {
-      // Loop through facets.
-      foreach ($facets as $facet_id => $facet_info) {
-        $field_id = $facet_info['field'];
-        $facet = [$field_id => []];
-
-        // Skip if not recognized as a known field.
-        if (!isset($index_fields[$field_id])) {
-          continue;
-        }
-        // TODO: missing function reference.
-        $field_type = search_api_extract_inner_type($index_fields[$field_id]['type']);
-
-        // TODO: handle different types (GeoDistance and so on). See the
-        // supportedFeatures todo.
-        if ($field_type === 'date') {
-          $facet_type = 'date_histogram';
-          $facet[$field_id] = $this->createDateFieldFacet($field_id, $facet);
-        }
-        else {
-          $facet_type = 'terms';
-          $facet[$field_id][$facet_type]['all_terms'] = (bool) $facet_info['missing'];
-        }
-
-        // Add the facet.
-        if (!empty($facet[$field_id])) {
-          // Add facet options.
-          $facet_info['facet_type'] = $facet_type;
-          $facet[$field_id] = $this->addFacetOptions($facet[$field_id], $query, $facet_info);
-        }
-        $params['body']['facets'][$field_id] = $facet[$field_id];
-      }
-    }
-  }
-
-  /**
-   * Helper function that adds options and returns facet.
-   *
-   * @param array $facet
-   * @param QueryInterface $query
-   * @param string $facet_info
-   *
-   * @return array
-   */
-  protected function addFacetOptions(array &$facet, QueryInterface $query, $facet_info) {
-    $facet_limit = $this->getFacetLimit($facet_info);
-    $facet_search_filter = $this->getFacetSearchFilter($query, $facet_info);
-
-    // Set the field.
-    $facet[$facet_info['facet_type']]['field'] = $facet_info['field'];
-
-    // OR facet. We remove filters affecting the associated field.
-    // TODO: distinguish between normal filters and facet filters.
-    // See http://drupal.org/node/1390598.
-    // Filter the facet.
-    if (!empty($facet_search_filter)) {
-      $facet['facet_filter'] = $facet_search_filter;
-    }
-
-    // Limit the number of returned entries.
-    if ($facet_limit > 0 && $facet_info['facet_type'] == 'terms') {
-      $facet[$facet_info['facet_type']]['size'] = $facet_limit;
-    }
-
-    return $facet;
-  }
-
-  /**
-   * Helper function return Facet filter.
-   *
-   * @param QueryInterface $query
-   * @param array $facet_info
-   *
-   * @return array|null|string
-   */
-  protected function getFacetSearchFilter(QueryInterface $query, array $facet_info) {
-    $index_fields = $this->getIndexFields($query);
-
-    if (isset($facet_info['operator']) && Unicode::strtolower($facet_info['operator']) === 'or') {
-      $facet_search_filter = $this->parseConditionGroup($query->getConditionGroup(), $index_fields, $facet_info['field']);
-      if (!empty($facet_search_filter)) {
-        $facet_search_filter = $facet_search_filter[0];
-      }
-    }
-    // Normal facet, we just use the main query filters.
-    else {
-      $facet_search_filter = $this->parseConditionGroup($query->getConditionGroup(), $index_fields);
-      if (!empty($facet_search_filter)) {
-        $facet_search_filter = $facet_search_filter[0];
-      }
-    }
-
-    return $facet_search_filter;
-  }
-
-  /**
-   * Helper function create Facet for date field type.
-   *
-   * @param mixed $facet_id
-   * @param array $facet
-   *
-   * @return array.
-   */
-  protected function createDateFieldFacet($facet_id, array $facet) {
-    $result = $facet[$facet_id];
-
-    $date_interval = $this->getDateFacetInterval($facet_id);
-    $result['date_histogram']['interval'] = $date_interval;
-    // TODO: Check the timezone cause this hardcoded way doesn't seem right.
-    $result['date_histogram']['time_zone'] = 'UTC';
-    // Use factor 1000 as we store dates as seconds from epoch
-    // not milliseconds.
-    $result['date_histogram']['factor'] = 1000;
-
-    return $result;
-  }
-
-  /**
-   * Helper function that return facet limits.
-   *
-   * @param array $facet_info
-   *
-   * @return int|null
-   */
-  protected function getFacetLimit(array $facet_info) {
-    // If no limit (-1) is selected, use the server facet limit option.
-    $facet_limit = !empty($facet_info['limit']) ? $facet_info['limit'] : -1;
-    if ($facet_limit < 0) {
-      $facet_limit = $this->getOption('facet_limit', 10);
-    }
-    return $facet_limit;
-  }
-
-  /**
-   * Helper function which add params to date facets.
-   *
-   * @param mixed $facet_id
-   *
-   * @return string
-   */
-  protected function getDateFacetInterval($facet_id) {
-    // Active search corresponding to this index.
-    $searcher = key(facetapi_get_active_searchers());
-
-    // Get the FacetApiAdapter for this searcher.
-    $adapter = isset($searcher) ? facetapi_adapter_load($searcher) : NULL;
-
-    // Get the date granularity.
-    $date_gap = $this->getDateGranularity($adapter, $facet_id);
-
-    switch ($date_gap) {
-      // Already a selected YEAR, we want the months.
-      case 'YEAR':
-        $date_interval = 'month';
-        break;
-
-      // Already a selected MONTH, we want the days.
-      case 'MONTH':
-        $date_interval = 'day';
-        break;
-
-      // Already a selected DAY, we want the hours and so on.
-      case 'DAY':
-        $date_interval = 'hour';
-        break;
-
-      // By default we return result counts by year.
-      default:
-        $date_interval = 'year';
-    }
-
-    return $date_interval;
-  }
-
-  /**
-   * Helper function to return date gap.
-   *
-   * @param $adapter
-   * @param $facet_id
-   *
-   * @return mixed|string
-   */
-  public function getDateGranularity($adapter, $facet_id) {
-    // Date gaps.
-    $gap_weight = ['YEAR' => 2, 'MONTH' => 1, 'DAY' => 0];
-    $gaps = [];
-    $date_gap = 'YEAR';
-
-    // Get the date granularity.
-    if (isset($adapter)) {
-      // Get the current date gap from the active date filters.
-      $active_items = $adapter->getActiveItems(['name' => $facet_id]);
-      if (!empty($active_items)) {
-        foreach ($active_items as $active_item) {
-          $value = $active_item['value'];
-          if (strpos($value, ' TO ') > 0) {
-            list($date_min, $date_max) = explode(' TO ', str_replace([
-              '[',
-              ']',
-            ], '', $value), 2);
-            $gap = self::getDateGap($date_min, $date_max, FALSE);
-            if (isset($gap_weight[$gap])) {
-              $gaps[] = $gap_weight[$gap];
-            }
-          }
-        }
-        if (!empty($gaps)) {
-          // Minimum gap.
-          $date_gap = array_search(min($gaps), $gap_weight);
-        }
-      }
-    }
-
-    return $date_gap;
-  }
-
-  /**
-   * Helper function that parse facets.
-   *
-   * @param array $response
-   * @param QueryInterface $query
-   *
-   * @return array
-   */
-  protected function parseSearchFacets(array $response, QueryInterface $query) {
-
-    $result = [];
-    $index_fields = $this->getIndexFields($query);
-    $facets = $query->getOption('search_api_facets');
-    if (!empty($facets) && isset($response['facets'])) {
-      foreach ($response['facets'] as $facet_id => $facet_data) {
-        if (isset($facets[$facet_id])) {
-          $facet_info = $facets[$facet_id];
-          $facet_min_count = $facet_info['min_count'];
-
-          $field_id = $facet_info['field'];
-          $field_type = search_api_extract_inner_type($index_fields[$field_id]['type']);
-
-          // TODO: handle different types (GeoDistance and so on).
-          if ($field_type === 'date') {
-            foreach ($facet_data['entries'] as $entry) {
-              if ($entry['count'] >= $facet_min_count) {
-                // Divide time by 1000 as we want seconds from epoch
-                // not milliseconds.
-                $result[$facet_id][] = [
-                  'count'  => $entry['count'],
-                  'filter' => '"' . ($entry['time'] / 1000) . '"',
-                ];
-              }
-            }
-          }
-          else {
-            foreach ($facet_data['terms'] as $term) {
-              if ($term['count'] >= $facet_min_count) {
-                $result[$facet_id][] = [
-                  'count'  => $term['count'],
-                  'filter' => '"' . $term['term'] . '"',
-                ];
-              }
-            }
-          }
-        }
-      }
-    }
-
-    return $result;
   }
 
   /**
@@ -1291,7 +899,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   /**
    * Implements __sleep()
    *
-   * Prevents closure serialization error on search_api server add form
+   * Prevents closure serialization error on search_api server add form.
    */
   public function __sleep() {
     return [];
