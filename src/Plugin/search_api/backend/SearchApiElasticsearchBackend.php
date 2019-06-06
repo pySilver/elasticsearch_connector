@@ -822,7 +822,16 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       }
 
       $terms = [];
-      $buckets = $aggregations[$facet_id][$facet_id]['buckets'];
+
+      // Buckets have different path depending on request.
+      $buckets = [];
+      if (isset($aggregations[$facet_id][$facet_id]['buckets'])) {
+        $buckets = $aggregations[$facet_id][$facet_id]['buckets'];
+      }
+      elseif (isset($aggregations[$facet_id]['buckets'])) {
+        $buckets = $aggregations[$facet_id]['buckets'];
+      }
+
       array_walk($buckets, static function ($value) use (&$terms, $facet) {
         if ($value['doc_count'] >= $facet['min_count']) {
           $terms[] = [
