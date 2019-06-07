@@ -722,7 +722,10 @@ class SearchBuilder {
       return;
     }
 
-    if (isset($search->getSuggesters()['server'])) {
+    $suggesters = $search->getSuggesters();
+    $suggester_limits = $search->getSuggesterLimits();
+
+    if (isset($suggesters['elasticsearch_terms']) || isset($suggesters['server'])) {
       // Aggregate suggestions.
       $agg_field = $options['field'];
       $query_field = sprintf('%s.autocomplete', $agg_field);
@@ -734,7 +737,7 @@ class SearchBuilder {
       $agg = new TermsAggregation('autocomplete');
       $agg->setField($agg_field);
       $agg->setInclude($include);
-      $agg->setSize($search->getSuggesterLimits()['server']);
+      $agg->setSize($suggester_limits['elasticsearch_terms'] ?? $suggester_limits['server']);
 
       $match = new Match($query_field, $user_input);
 
@@ -765,8 +768,10 @@ class SearchBuilder {
 
 
     // Enable live results for the same query:
-    if (isset($search->getSuggesters()['live_results'])) {
-      $this->esQuery->setSize($search->getSuggesterLimits()['live_results']);
+    if (isset($suggesters['elasticsearch_terms'])) {
+      $this->esQuery->setSize(
+        (int) $suggesters['elasticsearch_terms']->getConfiguration()['live_results']
+      );
     }
   }
 
