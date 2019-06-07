@@ -237,6 +237,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * {@inheritdoc}
    */
   public function defaultConfiguration() {
+    // TODO: Most of this settings are not used.
     return [
       'cluster_settings'          => [
         'cluster' => '',
