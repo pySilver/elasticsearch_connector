@@ -3,7 +3,6 @@
 namespace Drupal\elasticsearch_connector\Plugin\search_api\backend;
 
 use Drupal\Component\Utility\DiffArray;
-use Drupal\Component\Utility\Unicode;
 use Drupal\Core\Config\Config;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
@@ -21,7 +20,6 @@ use Drupal\elasticsearch_connector\Utility\Utility;
 use Drupal\search_api\Backend\BackendPluginBase;
 use Drupal\search_api\IndexInterface;
 use Drupal\search_api\Query\QueryInterface;
-use Drupal\search_api\Query\ResultSet;
 use Drupal\search_api\Query\ResultSetInterface;
 use Drupal\search_api\SearchApiException;
 use Drupal\search_api_autocomplete\SearchInterface;
@@ -721,6 +719,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       $search->addIndex($params['index'])->addType($params['type']);
       $result_set = $search->search($elastic_query);
       $results = self::parseResult($query, $result_set);
+      self::parseSpellingSuggestions($query, $result_set);
       self::parseFacets($query, $result_set);
 
       // Allow modules to alter the Elastic Search Results.
@@ -738,8 +737,6 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
 
   /**
    * Parse a Elasticsearch response into a ResultSetInterface.
-   *
-   * TODO: Add excerpt handling.
    *
    * @param \Drupal\search_api\Query\QueryInterface $query
    *   Search API query.
@@ -847,6 +844,29 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
 
     $results = $query->getResults();
     $results->setExtraData('search_api_facets', $search_api_facets);
+  }
+
+  /**
+   * Parse spelling suggestions from result set.
+   *
+   * @param \Drupal\search_api\Query\QueryInterface $query
+   *   Search API query.
+   * @param \Elastica\ResultSet $result_set
+   *   ResultSet.
+   */
+  public static function parseSpellingSuggestions(QueryInterface $query, ElasticResultSet $result_set) {
+    $suggestions = [];
+    if (isset($result_set->getSuggests()['spelling_suggestion'])) {
+      $spelling_suggestions = $result_set->getSuggests()['spelling_suggestion'];
+      foreach ($spelling_suggestions as $spelling_suggestion) {
+        foreach ($spelling_suggestion['options'] as $phrase) {
+          $suggestions[] = $phrase['text'];
+        }
+      }
+    }
+
+    $results = $query->getResults();
+    $results->setExtraData('search_api_spelling_suggestions', $suggestions);
   }
 
   /**

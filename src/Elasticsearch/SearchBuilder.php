@@ -108,6 +108,7 @@ class SearchBuilder {
     $this->setExcludedSourceFields();
     $this->setMoreLikeThisQuery();
     $this->setAutocompleteAggs();
+    $this->setDidYouMeanQuery();
     $this->setFacets();
     $this->setSort();
 
@@ -818,6 +819,54 @@ class SearchBuilder {
     }
 
     return $ret;
+  }
+
+  /**
+   * Sets "Did you mean" spell suggestion.
+   */
+  protected function setDidYouMeanQuery(): void {
+    $query_string = $this->query->getOriginalKeys();
+    if (!is_string($query_string)) {
+      return;
+    }
+
+    $query_string = trim($query_string);
+
+    // Skip for autocomplete queries and empty query strings.
+    if (empty($query_string) || !empty($this->query->getOption('autocomplete'))) {
+      return;
+    }
+
+    // Determine suggestion field.
+    $suggestion_field = '';
+    $this->moduleHandler->alter(
+      'elasticsearch_connector_search_api_spelling_suggestion_field',
+      $suggestion_field
+    );
+
+    if (empty($suggestion_field)) {
+      return;
+    }
+
+    // Retrieve spelling phrase single suggestion.
+    $trigram_field = sprintf('%s.suggestion_trigram', $suggestion_field);
+    $trigram_generator = new DirectGenerator($trigram_field);
+    $trigram_generator->setSuggestMode(DirectGenerator::SUGGEST_MODE_ALWAYS);
+
+    $reverse_field = sprintf('%s.suggestion_reverse', $suggestion_field);
+    $reverse_generator = new DirectGenerator($reverse_field);
+    $reverse_generator->setSuggestMode(DirectGenerator::SUGGEST_MODE_ALWAYS);
+    $reverse_generator->setPreFilter('suggestion_reverse');
+    $reverse_generator->setPostFilter('suggestion_reverse');
+
+    $suggestion = new Phrase('spelling_suggestion', $trigram_field);
+    $suggestion->setSize(1);
+    $suggestion->setText($query_string);
+    $suggestion->addCandidateGenerator($trigram_generator);
+    $suggestion->addCandidateGenerator($reverse_generator);
+
+    $suggest = new Suggest($suggestion);
+    $this->esQuery->setSuggest($suggest);
   }
 
   /**
