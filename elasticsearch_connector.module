@@ -131,7 +131,7 @@ function elasticsearch_connector_form_search_api_index_form_alter(&$form, FormSt
     '#field_suffix'  => 's',
     '#min'           => -1,
     '#default_value' => $settings['index']['refresh_interval'],
-    '#description'   => t('How often to perform a refresh operation, which makes recent changes to the index visible to search. '),
+    '#description'   => t('How often to perform a refresh operation, which makes recent changes to the index visible to search.'),
   ];
 
 }
