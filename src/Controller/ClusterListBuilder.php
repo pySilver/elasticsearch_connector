@@ -10,6 +10,7 @@ use Drupal\Core\Url;
 use Drupal\elasticsearch_connector\Elasticsearch\ClientManager;
 use Drupal\elasticsearch_connector\Entity\Cluster;
 use Drupal\elasticsearch_connector\Entity\Index;
+use Elastica\Exception\ConnectionException;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -148,15 +149,23 @@ class ClusterListBuilder extends ConfigEntityListBuilder {
     $status = NULL;
     if (isset($entity->cluster_id)) {
       $cluster = $this->clusterStorage->load($entity->cluster_id);
+      $status = $this->t('Not available');
+      $version_number = $this->t('Unknown version');
 
-      if ($client->hasConnection()) {
-        $version_number = $client->getVersion();
-        $status         = $client->getCluster()->getHealth()->getStatus();
+      try {
+        if ($client->hasConnection()) {
+          $version_number = $client->getVersion();
+          $status = $client->getCluster()->getHealth()->getStatus();
+        }
       }
-      else {
-        $status         = $this->t('Not available');
-        $version_number = $this->t('Unknown version');
+      catch (ConnectionException $e) {
+        $this->messenger()->addError(
+          $this->t('Elasticsearch connection failed due to: @error', [
+            '@error' => $e->getMessage(),
+          ])
+        );
       }
+
       $result = [
         'data'  => [
           'type'          => [

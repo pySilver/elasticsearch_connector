@@ -5,6 +5,7 @@ namespace Drupal\elasticsearch_connector\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\elasticsearch_connector\Elasticsearch\ClientManager;
 use Drupal\elasticsearch_connector\Entity\Cluster;
+use Elastica\Exception\ConnectionException;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -99,90 +100,99 @@ class ElasticsearchController extends ControllerBase {
     $cluster_statistics_rows = [];
     $cluster_health_rows = [];
 
-    if ($client->hasConnection()) {
-      // Nodes.
-      $nodes = $client->getCluster()->getNodes();
-      foreach ($nodes as $node_id => $node) {
-        $node_info = $node->getInfo()->getData();
-        $node_stats = $node->getStats()->getData();
+    try {
+      if ($client->hasConnection()) {
+        // Nodes.
+        $nodes = $client->getCluster()->getNodes();
+        foreach ($nodes as $node_id => $node) {
+          $node_info = $node->getInfo()->getData();
+          $node_stats = $node->getStats()->getData();
 
-        $row = [];
-        $row[] = ['data' => $node->getName()];
-        $row[] = ['data' => $node_stats['indices']['docs']['count']];
-        $row[] = [
-          'data' => format_size(
-            $node_stats['indices']['store']['size_in_bytes']
+          $row = [];
+          $row[] = ['data' => $node->getName()];
+          $row[] = ['data' => $node_stats['indices']['docs']['count']];
+          $row[] = [
+            'data' => format_size(
+              $node_stats['indices']['store']['size_in_bytes']
+            ),
+          ];
+          $total_docs += $node_stats['indices']['docs']['count'];
+          $total_size += $node_stats['indices']['store']['size_in_bytes'];
+          $node_rows[] = $row;
+
+          foreach ($node_info['plugins'] as $plugin) {
+            $row = [];
+            $row[] = ['data' => $plugin['name']];
+            $row[] = ['data' => $plugin['version']];
+            $row[] = ['data' => $plugin['description']];
+            $row[] = ['data' => $node->getName()];
+            $plugin_rows[] = $row;
+          }
+        }
+
+        // Cluster:
+        $health = $client->getCluster()->getHealth()->getData();
+        $state = $client->getCluster()->getState();
+        $cluster_statistics_rows = [
+          [
+            [
+              'data' => $health['number_of_nodes'] . ' ' . t('Nodes'),
+            ],
+            [
+              'data' => $health['active_shards'] + $health['unassigned_shards'] . ' ' . t('Total Shards'),
+            ],
+            [
+              'data' => $health['active_shards'] . ' ' . t('Successful Shards'),
+            ],
+            [
+              'data' => count($state['metadata']['indices']) . ' ' . t('Indices'),
+            ],
+            ['data' => $total_docs . ' ' . t('Total Documents')],
+            ['data' => format_size($total_size) . ' ' . t('Total Size')],
+          ],
+        ];
+
+        $cluster_health_rows = [];
+        $cluster_health_mapping = [
+          'cluster_name'                     => t('Cluster name'),
+          'status'                           => t('Status'),
+          'timed_out'                        => t('Time out'),
+          'number_of_nodes'                  => t('Number of nodes'),
+          'number_of_data_nodes'             => t('Number of data nodes'),
+          'active_primary_shards'            => t('Active primary shards'),
+          'active_shards'                    => t('Active shards'),
+          'relocating_shards'                => t('Relocating shards'),
+          'initializing_shards'              => t('Initializing shards'),
+          'unassigned_shards'                => t('Unassigned shards'),
+          'delayed_unassigned_shards'        => t('Delayed unassigned shards'),
+          'number_of_pending_tasks'          => t('Number of pending tasks'),
+          'number_of_in_flight_fetch'        => t('Number of in-flight fetch'),
+          'task_max_waiting_in_queue_millis' => t(
+            'Task max waiting in queue millis'
+          ),
+          'active_shards_percent_as_number'  => t(
+            'Active shards percent as number'
           ),
         ];
-        $total_docs += $node_stats['indices']['docs']['count'];
-        $total_size += $node_stats['indices']['store']['size_in_bytes'];
-        $node_rows[] = $row;
 
-        foreach ($node_info['plugins'] as $plugin) {
+        foreach ($health as $health_key => $health_value) {
+          if (!isset($cluster_health_mapping[$health_key])) {
+            continue;
+          }
+
           $row = [];
-          $row[] = ['data' => $plugin['name']];
-          $row[] = ['data' => $plugin['version']];
-          $row[] = ['data' => $plugin['description']];
-          $row[] = ['data' => $node->getName()];
-          $plugin_rows[] = $row;
+          $row[] = ['data' => $cluster_health_mapping[$health_key]];
+          $row[] = ['data' => $health_value === FALSE ? 'False' : $health_value];
+          $cluster_health_rows[] = $row;
         }
       }
-
-      // Cluster:
-      $health = $client->getCluster()->getHealth()->getData();
-      $state = $client->getCluster()->getState();
-      $cluster_statistics_rows = [
-        [
-          [
-            'data' => $health['number_of_nodes'] . ' ' . t('Nodes'),
-          ],
-          [
-            'data' => $health['active_shards'] + $health['unassigned_shards'] . ' ' . t('Total Shards'),
-          ],
-          [
-            'data' => $health['active_shards'] . ' ' . t('Successful Shards'),
-          ],
-          [
-            'data' => count($state['metadata']['indices']) . ' ' . t('Indices'),
-          ],
-          ['data' => $total_docs . ' ' . t('Total Documents')],
-          ['data' => format_size($total_size) . ' ' . t('Total Size')],
-        ],
-      ];
-
-      $cluster_health_rows = [];
-      $cluster_health_mapping = [
-        'cluster_name'                     => t('Cluster name'),
-        'status'                           => t('Status'),
-        'timed_out'                        => t('Time out'),
-        'number_of_nodes'                  => t('Number of nodes'),
-        'number_of_data_nodes'             => t('Number of data nodes'),
-        'active_primary_shards'            => t('Active primary shards'),
-        'active_shards'                    => t('Active shards'),
-        'relocating_shards'                => t('Relocating shards'),
-        'initializing_shards'              => t('Initializing shards'),
-        'unassigned_shards'                => t('Unassigned shards'),
-        'delayed_unassigned_shards'        => t('Delayed unassigned shards'),
-        'number_of_pending_tasks'          => t('Number of pending tasks'),
-        'number_of_in_flight_fetch'        => t('Number of in-flight fetch'),
-        'task_max_waiting_in_queue_millis' => t(
-          'Task max waiting in queue millis'
-        ),
-        'active_shards_percent_as_number'  => t(
-          'Active shards percent as number'
-        ),
-      ];
-
-      foreach ($health as $health_key => $health_value) {
-        if (!isset($cluster_health_mapping[$health_key])) {
-          continue;
-        }
-
-        $row = [];
-        $row[] = ['data' => $cluster_health_mapping[$health_key]];
-        $row[] = ['data' => $health_value === FALSE ? 'False' : $health_value];
-        $cluster_health_rows[] = $row;
-      }
+    }
+    catch (ConnectionException $e) {
+      $this->messenger()->addError(
+        $this->t('Elasticsearch connection failed due to: @error', [
+          '@error' => $e->getMessage(),
+        ])
+      );
     }
 
     $output['cluster_statistics_wrapper'] = [

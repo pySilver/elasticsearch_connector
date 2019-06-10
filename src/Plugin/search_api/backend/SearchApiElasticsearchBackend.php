@@ -342,12 +342,12 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
 
     if ($this->server->status()) {
       // If the server is enabled, check whether Elasticsearch can be reached.
-      $ping = $this->client->hasConnection();
+      $ping = $this->isAvailable();
       if ($ping) {
-        $msg = $this->t('The Elasticsearch server could be reached');
+        $msg = $this->t('The Elasticsearch server is reachable.');
       }
       else {
-        $msg = $this->t('The Elasticsearch server could not be reached. Further data is therefore unavailable.');
+        $msg = $this->t('The Elasticsearch server is unreachable.');
       }
       $info[] = [
         'label'  => $this->t('Connection'),
@@ -873,7 +873,17 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * {@inheritdoc}
    */
   public function isAvailable() {
-    return $this->client->hasConnection();
+    if (!$this->client->hasConnection()) {
+      return FALSE;
+    }
+
+    try {
+      $this->client->getVersion();
+      return TRUE;
+    }
+    catch (ConnectionException $e) {
+      return FALSE;
+    }
   }
 
   /**
