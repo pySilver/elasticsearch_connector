@@ -433,7 +433,11 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * {@inheritdoc}
    */
   public function updateIndex(IndexInterface $index) {
-    if ($this->hasMappingChanges($index) || $this->hasSettingsChanged($index)) {
+    $index_name = $this->indexFactory::getIndexName($index);
+    if (!$this->client->getIndex($index_name)->exists() ||
+        $this->hasMappingChanges($index) ||
+        $this->hasSettingsChanged($index)
+    ) {
       // Reinstall index & mapping, then schedule full reindex.
       $this->addIndex($index);
       $index->reindex();
@@ -450,9 +454,6 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    *
    * @return \Elastica\Response
    *   Response object.
-   *
-   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
-   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public function createMapping(Type $type, IndexInterface $index): Response {
     $mappingParams = $this->indexFactory::mapping($index);
@@ -499,9 +500,6 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    *
    * @return bool
    *   TRUE if changes, FALSE otherwise.
-   *
-   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
-   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public function hasMappingChanges(IndexInterface $index): bool {
     $params = $this->indexFactory::index($index);
