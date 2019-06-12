@@ -174,9 +174,6 @@ class IndexHelper {
    *
    * @return array
    *   Parameters required to create an index mapping.
-   *
-   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
-   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public static function mapping(IndexInterface $index) {
     $properties = [
@@ -184,39 +181,6 @@ class IndexHelper {
         'type' => 'keyword',
       ],
     ];
-
-    // Figure out which fields are used for autocompletion if any.
-    if (\Drupal::moduleHandler()->moduleExists('search_api_autocomplete')) {
-      $autocompletes = \Drupal::entityTypeManager()
-        ->getStorage('search_api_autocomplete_search')
-        ->loadMultiple();
-      $all_autocompletion_fields = [];
-      foreach ($autocompletes as $autocomplete) {
-        $suggester = \Drupal::service('plugin.manager.search_api_autocomplete.suggester');
-        $plugin = $suggester->createInstance('server', ['#search' => $autocomplete]);
-        assert($plugin instanceof SuggesterInterface);
-        $configuration = $plugin->getConfiguration();
-        $autocompletion_fields = $configuration['fields'] ?? [];
-        if (!$autocompletion_fields) {
-          $autocompletion_fields = $plugin
-            ->getSearch()
-            ->getIndex()
-            ->getFulltextFields();
-        }
-
-        // Collect autocompletion fields in an array keyed by field id.
-        $all_autocompletion_fields += array_flip($autocompletion_fields);
-      }
-    }
-
-    // Map index fields.
-    foreach ($index->getFields() as $field_id => $field_data) {
-      $properties[$field_id] = self::mappingFromField($field_data);
-      // Enable fielddata for fields that are used with autocompletion.
-      if (isset($all_autocompletion_fields[$field_id])) {
-        $properties[$field_id]['fielddata'] = TRUE;
-      }
-    }
 
     $properties['search_api_language'] = [
       'type' => 'keyword',
