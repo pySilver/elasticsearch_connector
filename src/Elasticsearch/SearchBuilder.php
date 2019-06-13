@@ -11,7 +11,6 @@ use Elastica\Query\BoolQuery;
 use Elastica\Query\Exists;
 use Elastica\Query\FunctionScore;
 use Elastica\Query\Match;
-use Elastica\Query\MatchPhrase;
 use Elastica\Query\MoreLikeThis;
 use Elastica\Query\MultiMatch;
 use Elastica\Query\Range;
@@ -549,59 +548,25 @@ class SearchBuilder {
     bool $negation,
     string $fuzzyness
   ): AbstractQuery {
-
-    if ($plugin_id === 'phrase') {
-      if (count($fields) === 1) {
-        $field = array_shift($fields);
-        $query = new MatchPhrase($field, $query_string);
-        $query->setFieldParam($field, 'zero_terms_query', Match::ZERO_TERM_ALL);
-      }
-      else {
-        $query = new MultiMatch();
-        $query->setType(MultiMatch::TYPE_PHRASE);
-        $query->setZeroTermsQuery(MultiMatch::ZERO_TERM_ALL);
-        $query->setQuery($query_string);
-        $query->setFields($fields);
-        if ($conjunction === 'AND') {
-          $query->setOperator(MultiMatch::OPERATOR_AND);
-        }
-        else {
-          $query->setOperator(MultiMatch::OPERATOR_OR);
-        }
-      }
-
-      // Negate query:
-      if ($negation) {
-        $query = (new BoolQuery())->addMustNot($query);
-      }
-      return $query;
-    }
-
-    if (count($fields) === 1) {
-      $field = array_shift($fields);
-      $query = new Match($field, $query_string);
-      $query->setFieldFuzziness($field, $fuzzyness);
-      $query->setFieldZeroTermsQuery($field, Match::ZERO_TERM_ALL);
-      $query->setFieldOperator($field);
-      if ($conjunction === 'AND') {
-        $query->setFieldOperator($field, Match::OPERATOR_AND);
-      }
-      else {
-        $query->setFieldOperator($field, Match::OPERATOR_OR);
-      }
+    $query = new MultiMatch();
+    $query->setType(MultiMatch::TYPE_BEST_FIELDS);
+    $query->setQuery($query_string);
+    $query->setFields($fields);
+    if ($conjunction === 'AND') {
+      $query->setOperator(MultiMatch::OPERATOR_AND);
     }
     else {
-      $query = new MultiMatch();
-      $query->setType(MultiMatch::TYPE_CROSS_FIELDS);
-      $query->setZeroTermsQuery(MultiMatch::ZERO_TERM_ALL);
-      $query->setQuery($query_string);
-      $query->setFields($fields);
-      if ($conjunction === 'AND') {
-        $query->setOperator(MultiMatch::OPERATOR_AND);
-      }
-      else {
-        $query->setOperator(MultiMatch::OPERATOR_OR);
-      }
+      $query->setOperator(MultiMatch::OPERATOR_OR);
+    }
+
+    // Phrase query support.
+    if ($plugin_id === 'phrase') {
+      $query->setType(MultiMatch::TYPE_PHRASE);
+    }
+    else {
+      // The fuzziness parameter cannot be used with the
+      // phrase or phrase_prefix type.
+      $query->setFuzziness($fuzzyness);
     }
 
     // Negate query:
