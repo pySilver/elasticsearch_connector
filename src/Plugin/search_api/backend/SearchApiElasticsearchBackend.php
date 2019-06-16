@@ -827,6 +827,22 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       elseif (isset($aggregations[$facet_id]['buckets'])) {
         $buckets = $aggregations[$facet_id]['buckets'];
       }
+      elseif (
+        $facet['query_type'] === 'search_api_nested' &&
+        isset($aggregations[$facet_id][$facet_id][$facet_id][$facet_id]['buckets'])
+      ) {
+        $buckets = $aggregations[$facet_id][$facet_id][$facet_id][$facet_id]['buckets'];
+      }
+      elseif ($facet['query_type'] === 'search_api_range' && isset($aggregations[$facet_id])) {
+        $buckets[] = [
+          'doc_count' => $aggregations[$facet_id]['doc_count'],
+          'key'       => $aggregations[$facet_id]['min']['value'],
+        ];
+        $buckets[] = [
+          'doc_count' => $aggregations[$facet_id]['doc_count'],
+          'key'       => $aggregations[$facet_id]['max']['value'],
+        ];
+      }
 
       array_walk($buckets, static function ($value) use (&$terms, $facet) {
         if ($value['doc_count'] >= $facet['min_count']) {

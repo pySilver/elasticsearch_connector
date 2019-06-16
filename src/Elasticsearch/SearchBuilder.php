@@ -11,8 +11,10 @@ use Elastica\Query\BoolQuery;
 use Elastica\Query\Exists;
 use Elastica\Query\FunctionScore;
 use Elastica\Query\Match;
+use Elastica\Query\MatchAll;
 use Elastica\Query\MoreLikeThis;
 use Elastica\Query\MultiMatch;
+use Elastica\Query\Nested;
 use Elastica\Query\Range;
 use Elastica\Query\SimpleQueryString;
 use Elastica\Query\Term;
@@ -21,15 +23,20 @@ use Elastica\Suggest;
 use Elastica\Suggest\CandidateGenerator\DirectGenerator;
 use Elastica\Suggest\Phrase;
 use Elastica\Aggregation\Terms as TermsAggregation;
+use Elastica\Aggregation\Nested as NestedAggregation;
+use Elastica\Aggregation\Filter as FilterAggregation;
+use Elastica\Aggregation\Max;
+use Elastica\Aggregation\Min;
+use Elastica\Aggregation\TopHits;
 use Elastica\Aggregation\Histogram as HistogramAggregation;
 use Elastica\Aggregation\DateHistogram as DateHistogramAggregation;
-use Elastica\Aggregation\GlobalAggregation;
 use Drupal\facets\Plugin\facets\query_type\SearchApiDate;
 use Drupal\search_api\SearchApiException;
 use Drupal\search_api\Utility\Utility as SearchApiUtility;
-use Drupal\search_api\Query\Condition;
+use Drupal\search_api\Query\ConditionInterface;
 use Drupal\search_api\Query\ConditionGroupInterface;
 use Drupal\search_api\Query\QueryInterface;
+use Illuminate\Support\Str;
 
 /**
  * Class SearchBuilder.
@@ -67,6 +74,20 @@ class SearchBuilder {
   protected $esRootQuery;
 
   /**
+   * Elastica post filter.
+   *
+   * @var \Elastica\Query\BoolQuery
+   */
+  protected $esPostFilter;
+
+  /**
+   * Named facet value filters.
+   *
+   * @var array
+   */
+  protected $facetPostFilters = [];
+
+  /**
    * Index fields.
    *
    * @var array|\Drupal\search_api\Item\FieldInterface[]
@@ -91,6 +112,7 @@ class SearchBuilder {
     $this->index = $query->getIndex();
     $this->esQuery = new Query();
     $this->esRootQuery = new BoolQuery();
+    $this->esPostFilter = new BoolQuery();
     $this->indexFields = $this->getIndexFields();
     $this->moduleHandler = \Drupal::moduleHandler();
   }
@@ -99,6 +121,8 @@ class SearchBuilder {
    * Build query.
    *
    * @throws \Drupal\search_api\SearchApiException
+   *
+   * @todo: Add support for geo queries.
    */
   public function build(): void {
     $this->setRange();
@@ -111,8 +135,8 @@ class SearchBuilder {
     $this->setFacets();
     $this->setSort();
 
-    // TODO: Location query.
     $this->esQuery->setQuery($this->esRootQuery);
+    $this->esQuery->setPostFilter($this->esPostFilter);
   }
 
   /**
@@ -194,8 +218,7 @@ class SearchBuilder {
     $this->addLanguageConditions();
     $this->parseFilterConditionGroup(
       $this->query->getConditionGroup(),
-      $this->indexFields,
-      $this->esRootQuery
+      $this->indexFields
     );
   }
 
@@ -258,34 +281,19 @@ class SearchBuilder {
    *   expressed as filters.
    * @param \Drupal\search_api\Item\FieldInterface[] $index_fields
    *   An array of all indexed fields for the index, keyed by field identifier.
-   * @param \Elastica\Query\BoolQuery $filterQuery
-   *   Filter query.
    *
    * @throws \Drupal\search_api\SearchApiException
    */
   protected function parseFilterConditionGroup(
     ConditionGroupInterface $condition_group,
-    array $index_fields,
-    BoolQuery $filterQuery
+    array $index_fields
   ): void {
-    $backend_fields = ['search_api_language' => TRUE];
 
     foreach ($condition_group->getConditions() as $condition) {
-      $filter = NULL;
 
       // Simple filter [field_id, value, operator].
-      if ($condition instanceof Condition) {
-
+      if ($condition instanceof ConditionInterface) {
         $field_id = $condition->getField();
-
-        // Check field & operator settings.
-        // Skip invalid fields.
-        if (
-          (!isset($index_fields[$field_id]) && !isset($backend_fields[$field_id])) ||
-          !$condition->getOperator()
-        ) {
-          continue;
-        }
 
         // For some data type, we need to do conversions here.
         if (isset($index_fields[$field_id]) && $index_fields[$field_id]->getType() === 'boolean') {
@@ -295,18 +303,27 @@ class SearchBuilder {
         // Field might be nested object type:
         $condition->setField(self::getNestedPath($condition->getField()));
 
-        // Add filter.
+        // Add filter/post_filter.
         if ($condition_group->getConjunction() === 'AND') {
-          $filterQuery->addFilter($this->parseFilterCondition($condition));
+          $this->esRootQuery->addFilter($this->parseFilterCondition($condition));
         }
-        else {
-          $filterQuery->addShould($this->parseFilterCondition($condition));
+        elseif ($condition_group->getConjunction() === 'OR') {
+          // Filter provided by facet module with "OR" operator should use
+          // post_filter instead of main query.
+          if ($condition_group->hasTag(sprintf('facet:%s', $field_id))) {
+            $filter = $this->parseFilterCondition($condition);
+            $this->esPostFilter->addFilter($filter);
+            $this->facetPostFilters[$field_id] = $filter;
+          }
+          else {
+            $this->esRootQuery->addShould($this->parseFilterCondition($condition));
+          }
         }
 
       }
       // Nested filters.
       elseif ($condition instanceof ConditionGroupInterface) {
-        $this->parseFilterConditionGroup($condition, $index_fields, $filterQuery);
+        $this->parseFilterConditionGroup($condition, $index_fields);
       }
     }
   }
@@ -314,7 +331,7 @@ class SearchBuilder {
   /**
    * Get query by Condition instance.
    *
-   * @param \Drupal\search_api\Query\Condition $condition
+   * @param \Drupal\search_api\Query\ConditionInterface $condition
    *   Condition.
    *
    * @return \Elastica\Query\AbstractQuery
@@ -322,7 +339,7 @@ class SearchBuilder {
    *
    * @throws \Drupal\search_api\SearchApiException
    */
-  protected function parseFilterCondition(Condition $condition): AbstractQuery {
+  protected function parseFilterCondition(ConditionInterface $condition): AbstractQuery {
     // Handles "empty", "not empty" operators.
     if ($condition->getValue() === NULL) {
       switch ($condition->getOperator()) {
@@ -367,27 +384,27 @@ class SearchBuilder {
           break;
 
         case '>':
-          $filter = new Range($condition->getField(), ['gt' => $condition->getValue()]);
+          $filter = new Range($condition->getField(), ['gt' => (float) $condition->getValue()]);
           break;
 
         case '>=':
-          $filter = new Range($condition->getField(), ['gte' => $condition->getValue()]);
+          $filter = new Range($condition->getField(), ['gte' => (float) $condition->getValue()]);
           break;
 
         case '<':
-          $filter = new Range($condition->getField(), ['lt' => $condition->getValue()]);
+          $filter = new Range($condition->getField(), ['lt' => (float) $condition->getValue()]);
           break;
 
         case '<=':
-          $filter = new Range($condition->getField(), ['lte' => $condition->getValue()]);
+          $filter = new Range($condition->getField(), ['lte' => (float) $condition->getValue()]);
           break;
 
         case 'BETWEEN':
           $filter = new Range(
             $condition->getField(),
             [
-              'gt' => !empty($condition->getValue()[0]) ? $condition->getValue()[0] : NULL,
-              'lt' => !empty($condition->getValue()[1]) ? $condition->getValue()[1] : NULL,
+              'gt' => !empty($condition->getValue()[0]) ? (float) $condition->getValue()[0] : NULL,
+              'lt' => !empty($condition->getValue()[1]) ? (float) $condition->getValue()[1] : NULL,
             ]
           );
           break;
@@ -398,8 +415,8 @@ class SearchBuilder {
             new Range(
               $condition->getField(),
               [
-                'gt' => !empty($condition->getValue()[0]) ? $condition->getValue()[0] : NULL,
-                'lt' => !empty($condition->getValue()[1]) ? $condition->getValue()[1] : NULL,
+                'gt' => !empty($condition->getValue()[0]) ? (float) $condition->getValue()[0] : NULL,
+                'lt' => !empty($condition->getValue()[1]) ? (float) $condition->getValue()[1] : NULL,
               ]
             )
           );
@@ -407,6 +424,18 @@ class SearchBuilder {
 
         default:
           throw new SearchApiException("Unsupported operator `{$condition->getOperator()}` used for field `{$condition->getField()}`.");
+      }
+    }
+
+    // Adds support for nested queries:
+    if (Str::contains($condition->getField(), '.')) {
+      [$object_field] = explode('.', $condition->getField());
+      if (isset($this->indexFields[$object_field]) &&
+          $this->indexFields[$object_field]->getType() === 'nested_object') {
+        $nested_filter = new Nested();
+        $nested_filter->setPath($object_field);
+        $nested_filter->setQuery($filter);
+        $filter = $nested_filter;
       }
     }
 
@@ -845,20 +874,39 @@ class SearchBuilder {
       return;
     }
 
+    /** @var \Elastica\Aggregation\Filter[] $aggs */
+    $aggs = [];
+
     foreach ($facets as $facet_id => $facet) {
       $agg = NULL;
 
+      // Field might be part of objects that are flattened in search api.
+      $facet['field'] = self::getNestedPath($facet['field']);
+
       switch ($facet['query_type']) {
+        case 'search_api_range':
+          $min_agg = new Min('min');
+          $min_agg->setField($facet['field']);
+
+          $max_agg = new Max('max');
+          $max_agg->setField($facet['field']);
+
+          $agg = new FilterAggregation($facet_id);
+          $agg->addAggregation($min_agg);
+          $agg->addAggregation($max_agg);
+          break;
+
         case 'search_api_granular':
+        case 'search_api_date':
           if (isset($facet['date_display'])) {
-            $agg = new DateHistogramAggregation(
+            $histogram = new DateHistogramAggregation(
               $facet_id,
               $facet['field'],
               $this->getFacetApiDateGranularity($facet['granularity'])
             );
           }
           else {
-            $agg = new HistogramAggregation($facet_id, $facet['field'], $facet['granularity']);
+            $histogram = new HistogramAggregation($facet_id, $facet['field'], $facet['granularity']);
             if (is_numeric($facet['min_value']) && is_numeric($facet['max_value'])) {
               $agg->setParam('setExtendedBounds', [
                 'min' => $facet['min_value'],
@@ -866,21 +914,67 @@ class SearchBuilder {
               ]);
             }
           }
+
+          $agg = new FilterAggregation($facet_id);
+          $agg->addAggregation($histogram);
+          break;
+
+        case 'search_api_nested':
+          // TODO: Add support for numeric values.
+          // Outermost filter aggregation:
+          $agg = new FilterAggregation($facet_id);
+
+          // That contains nested aggregation required by nested object mapping.
+          $nested_agg = new NestedAggregation($facet_id, $facet['nested_path']);
+
+          // ...That contains inner filter aggregation used
+          // to group results by $facet['group_field_value']:
+          $filter_agg = new FilterAggregation(
+            $facet_id,
+            new Term([
+              sprintf('%s.%s', $facet['nested_path'], $facet['group_field_name']) => [
+                'value' => $facet['group_field_value'],
+              ],
+            ])
+          );
+
+          // ...That contains inner terms aggregation
+          // to build buckets of values:
+          $terms_agg = new TermsAggregation($facet_id);
+          $terms_agg->setSize(1000);
+          $terms_agg->setField(sprintf('%s.%s', $facet['nested_path'], $facet['value_field_name']));
+
+          // ...That contains inner top hits aggregation
+          // to retrieve more data from nested objects.
+          $top_hits_agg = new TopHits($facet_id);
+          $top_hits_agg->setSize(1);
+          $top_hits_agg->setSource($facet['nested_path']);
+
+          // Build the agg:
+          $terms_agg->addAggregation($top_hits_agg);
+          $filter_agg->addAggregation($terms_agg);
+          $nested_agg->addAggregation($filter_agg);
+          $agg->addAggregation($nested_agg);
+
+          // Process selected values.
+          $this->filterActiveNestedFacetValues($facet);
           break;
 
         case 'search_api_string':
         default:
-          $agg = new TermsAggregation($facet_id);
-          $agg->setField($facet['field']);
-          $agg->setMinimumDocumentCount($facet['min_count']);
+          $terms_agg = new TermsAggregation($facet_id);
+          $terms_agg->setField($facet['field']);
+          $terms_agg->setMinimumDocumentCount($facet['min_count']);
           if ($facet['limit'] > 0) {
-            $agg->setSize($facet['limit']);
+            $terms_agg->setSize($facet['limit']);
           }
 
           if ($facet['missing']) {
-            $agg->setParam('missing', '');
+            $terms_agg->setParam('missing', '');
           }
 
+          $agg = new FilterAggregation($facet_id);
+          $agg->addAggregation($terms_agg);
           break;
       }
 
@@ -888,17 +982,98 @@ class SearchBuilder {
         continue;
       }
 
-      // Ignore query filter for "OR" operator.
-      // @see: https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations-bucket-global-aggregation.html
-      if ($facet['operator'] === 'or') {
-        $global_agg = new GlobalAggregation($facet_id);
-        $global_agg->addAggregation($agg);
-        $this->esQuery->addAggregation($global_agg);
-      }
-      else {
-        $this->esQuery->addAggregation($agg);
+      $agg->setFilter(new MatchAll());
+      $aggs[$facet_id] = $agg;
+    }
+
+    // Construct filters based on post_filter for facets
+    // with "OR" query operator.
+    foreach ($facets as $facet_id => $facet) {
+      if (!isset($aggs[$facet_id])) {
+        continue;
       }
 
+      $agg = $aggs[$facet_id];
+      if ($facet['operator'] !== 'or') {
+        $this->esQuery->addAggregation($agg);
+        continue;
+      }
+
+      $facet_field_id = $facet['field'];
+      if ($facet['query_type'] === 'search_api_nested') {
+        $facet_field_id = sprintf(
+          '%s.%s:%s',
+          $facet['nested_path'],
+          $facet['group_field_name'],
+          $facet['group_field_value']
+        );
+      }
+
+      // Filter for aggregation should contain full post filter - without
+      // filtering for currently processed facet.
+      $facet_filter = new BoolQuery();
+      foreach ($this->facetPostFilters as $field_id => $filter) {
+        if ($field_id === $facet_field_id) {
+          continue;
+        }
+        $facet_filter->addFilter($filter);
+      }
+
+      $agg->setFilter($facet_filter);
+      $this->esQuery->addAggregation($agg);
+    }
+  }
+
+  /**
+   * Adds filter for nested aggregations.
+   *
+   * @param array $current_facet
+   *   Currently processed facet.
+   */
+  protected function filterActiveNestedFacetValues(array $current_facet): void {
+
+    /** @var \Drupal\facets\Entity\Facet $facet */
+    $facet = $current_facet['facet'];
+    $active_items = $facet->getActiveItems();
+    $exclude = $facet->getExclude();
+    if (empty($active_items)) {
+      return;
+    }
+
+    $filter_field = sprintf(
+      '%s.%s',
+      $current_facet['nested_path'],
+      $current_facet['group_field_name']
+    );
+
+    $value_field = sprintf(
+      '%s.%s',
+      $current_facet['nested_path'],
+      $current_facet['value_field_name']
+    );
+
+    $type_filter = new Term([$filter_field => ['value' => $current_facet['group_field_value']]]);
+    $value_filter = new Terms($value_field, $active_items);
+    if ($exclude) {
+      $value_filter = (new BoolQuery())->addMustNot($value_filter);
+    }
+
+    $nested_filter = new Nested();
+    $nested_filter->setPath($current_facet['nested_path']);
+    $nested_filter->setQuery(
+      (new BoolQuery())->addFilter($type_filter)->addFilter($value_filter)
+    );
+
+    // Facet "OR" query operator uses post_filter to widen search options.
+    if ($facet->getQueryOperator() === 'or') {
+      $this->esPostFilter->addFilter($nested_filter);
+
+      $field_id = sprintf('%s:%s', $filter_field, $current_facet['group_field_value']);
+      $this->facetPostFilters[$field_id] = $nested_filter;
+    }
+    // Facet "AND" query operator uses query filter to narrow search options.
+    else {
+      $this->esRootQuery->addFilter($nested_filter);
     }
 
   }
