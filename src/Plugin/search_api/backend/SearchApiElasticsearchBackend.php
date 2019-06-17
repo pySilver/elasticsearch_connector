@@ -433,10 +433,12 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
    * {@inheritdoc}
    */
   public function updateIndex(IndexInterface $index) {
-    $index_name = $this->indexFactory::getIndexName($index);
-    if (!$this->client->getIndex($index_name)->exists() ||
-        $this->hasMappingChanges($index) ||
-        $this->hasSettingsChanged($index)
+    $params = $this->indexFactory::index($index);
+    $es_index = $this->client->getIndex($params['index']);
+    $es_type = $es_index->getType($params['type']);
+
+    if (!$es_index->exists() || !$es_type->exists() ||
+        $this->hasMappingChanges($index) || $this->hasSettingsChanged($index)
     ) {
       // Reinstall index & mapping, then schedule full reindex.
       $this->addIndex($index);
