@@ -27,7 +27,7 @@ function hook_elasticsearch_connector_load_library_options_alter(array &$options
  * @param \Drupal\search_api\Query\QueryInterface $query
  *   Query object.
  */
-function hook_elasticsearch_connector_search_api_query(QueryInterface $query) {
+function hook_elasticsearch_connector_search_api_query_alter(QueryInterface $query) {
 }
 
 /**
@@ -38,7 +38,7 @@ function hook_elasticsearch_connector_search_api_query(QueryInterface $query) {
  * @param \Drupal\search_api\Query\QueryInterface $query
  *   Query object.
  */
-function hook_elasticsearch_connector_elastic_search_query(Query $elastic_query, QueryInterface $query) {
+function hook_elasticsearch_connector_elastic_search_query_alter(Query $elastic_query, QueryInterface $query) {
 }
 
 /**
@@ -51,7 +51,7 @@ function hook_elasticsearch_connector_elastic_search_query(Query $elastic_query,
  * @param object $response
  *   Response object.
  */
-function hook_elasticsearch_connector_search_results(ResultSetInterface $results, QueryInterface $query, $response) {
+function hook_elasticsearch_connector_search_results_alter(ResultSetInterface $results, QueryInterface $query, $response) {
 }
 
 /**
@@ -60,5 +60,16 @@ function hook_elasticsearch_connector_search_results(ResultSetInterface $results
  * @param array $random_sort_params
  *   Sorting params.
  */
-function hook_elasticsearch_connector_search_api_random_sort(array $random_sort_params) {
+function hook_elasticsearch_connector_search_api_random_sort_alter(array &$random_sort_params) {
+}
+
+/**
+ * Extract properties for object field.
+ *
+ * @param array $properties
+ *   Properties list.
+ * @param string $field
+ *   Field name.
+ */
+function hook_elasticsearch_connector_object_properties_alter(array &$properties, $field) {
 }
