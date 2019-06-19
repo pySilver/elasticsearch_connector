@@ -68,8 +68,10 @@ function hook_elasticsearch_connector_search_api_random_sort_alter(array &$rando
  *
  * @param array $properties
  *   Properties list.
+ * @param string $table
+ *   Search api table.
  * @param string $field
  *   Field name.
  */
-function hook_elasticsearch_connector_object_properties_alter(array &$properties, $field) {
+function hook_elasticsearch_connector_object_properties_alter(array &$properties, string $table, string $field) {
 }
