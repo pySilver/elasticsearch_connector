@@ -65,7 +65,7 @@ function elasticsearch_connector_search_api_views_handler_mapping_alter(array &$
       'id' => 'elasticsearch_object',
     ],
     'sort' => [
-      'id' => 'search_api',
+      'id' => 'elasticsearch_object',
     ],
   ];
 }
