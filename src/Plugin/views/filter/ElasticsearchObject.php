@@ -3,7 +3,9 @@
 namespace Drupal\elasticsearch_connector\Plugin\views\filter;
 
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\search_api\ElasticsearchConnectorException;
 use Drupal\search_api\Plugin\views\filter\SearchApiFilterTrait;
+use Drupal\search_api\Plugin\views\filter\SearchApiFulltext;
 use Drupal\views\Plugin\views\filter\FilterPluginBase;
 
 /**
@@ -101,13 +103,14 @@ class ElasticsearchObject extends FilterPluginBase {
       ],
     ];
 
-    if (empty($this->objectProperties) && !empty($this->options['table']) && !empty($this->options['field'])) {
+    if (empty($this->objectProperties) && !empty($this->options['field'])) {
       $index = $this->getIndex();
+      $field = $this->options['field'];
       $this->moduleHandler->alter(
         'elasticsearch_connector_object_properties',
         $this->objectProperties,
         $index,
-        $this->options['field']
+        $field
       );
     }
 
@@ -249,6 +252,24 @@ class ElasticsearchObject extends FilterPluginBase {
       '@group' => $this->definition['group'],
       '@title' => $title,
     ]);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function query() {
+    if ($this->realFilter instanceof FilterPluginBase && !empty($this->options['property_select']['property'])) {
+      $this->realFilter->realField = sprintf(
+        '%s.%s',
+        $this->realFilter->realField,
+        $this->options['property_select']['property']
+      );
+      // TODO: Somehow support full text fields in a future.
+      if ($this->realField instanceof SearchApiFulltext) {
+        throw new ElasticsearchConnectorException('Nested full text fields are not supported');
+      }
+      $this->realFilter->query();
+    }
   }
 
 }
