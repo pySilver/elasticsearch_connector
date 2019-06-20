@@ -136,7 +136,10 @@ class SearchBuilder {
     $this->setSort();
 
     $this->esQuery->setQuery($this->esRootQuery);
-    $this->esQuery->setPostFilter($this->esPostFilter);
+
+    if ($this->esPostFilter->count() > 0) {
+      $this->esQuery->setPostFilter($this->esPostFilter);
+    }
   }
 
   /**
@@ -162,7 +165,6 @@ class SearchBuilder {
    * Sets query sort.
    */
   protected function setSort(): void {
-    $index_fields = $this->index->getFields();
     $sort = [];
     $query_full_text_fields = $this->index->getFulltextFields();
 
@@ -193,14 +195,12 @@ class SearchBuilder {
         $query->setQuery($this->esRootQuery);
         $this->esRootQuery = $query;
       }
-      elseif (isset($index_fields[$field_id])) {
-        if (in_array($field_id, $query_full_text_fields, TRUE)) {
-          // Set the field that has not been analyzed for sorting.
-          $sort[self::getNestedPath($field_id) . '.keyword'] = $direction;
-        }
-        else {
-          $sort[self::getNestedPath($field_id)] = $direction;
-        }
+      elseif (in_array($field_id, $query_full_text_fields, TRUE)) {
+        // Set the field that has not been analyzed for sorting.
+        $sort[self::getNestedPath($field_id) . '.keyword'] = $direction;
+      }
+      else {
+        $sort[self::getNestedPath($field_id)] = $direction;
       }
     }
 
