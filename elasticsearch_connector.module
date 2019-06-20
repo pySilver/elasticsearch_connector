@@ -57,7 +57,7 @@ function elasticsearch_connector_search_api_field_type_mapping_alter(array &$map
  * Implements hook_search_api_views_handler_mapping_alter().
  */
 function elasticsearch_connector_search_api_views_handler_mapping_alter(array &$mapping) {
-  $mapping['object'] = [
+  $mapping['object'] = $mapping['nested_object'] = [
     'argument' => [
       'id' => 'search_api',
     ],
