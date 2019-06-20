@@ -102,10 +102,11 @@ class ElasticsearchObject extends FilterPluginBase {
     ];
 
     if (empty($this->objectProperties) && !empty($this->options['table']) && !empty($this->options['field'])) {
+      $index = $this->getIndex();
       $this->moduleHandler->alter(
         'elasticsearch_connector_object_properties',
         $this->objectProperties,
-        $this->options['table'],
+        $index,
         $this->options['field']
       );
     }

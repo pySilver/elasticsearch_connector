@@ -6,6 +6,7 @@
  */
 
 use Drupal\elasticsearch_connector\Entity\Cluster;
+use Drupal\search_api\Entity\Index;
 use Drupal\search_api\Query\QueryInterface;
 use Drupal\search_api\Query\ResultSetInterface;
 use Elastica\Query;
@@ -68,10 +69,10 @@ function hook_elasticsearch_connector_search_api_random_sort_alter(array &$rando
  *
  * @param array $properties
  *   Properties list.
- * @param string $table
- *   Search api table.
+ * @param \Drupal\search_api\Entity\Index $index
+ *   Search API Index.
  * @param string $field
  *   Field name.
  */
-function hook_elasticsearch_connector_object_properties_alter(array &$properties, string $table, string $field) {
+function hook_elasticsearch_connector_object_properties_alter(array &$properties, Index $index, string $field) {
 }
