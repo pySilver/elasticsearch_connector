@@ -764,6 +764,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       $result_item->setScore($result['_score']);
 
       // Nested objects needs to be unwrapped before passing into fields.
+      // TODO: Remove once nested support implemented.
       $flatten_result = Utility::dot($result['_source'], '', '__');
       foreach ($flatten_result as $result_key => $result_value) {
         if (isset($fields[$result_key])) {
