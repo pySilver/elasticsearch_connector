@@ -5,6 +5,10 @@
     "homepage": "https://www.drupal.org/project/elasticsearch_connector",
     "repositories": [
         {
+            "type": "git",
+            "url": "ssh://git@stash.directica.pl/mpl/elastica.git"
+        },
+        {
             "type": "composer",
             "url": "https://packages.drupal.org/8"
         }
