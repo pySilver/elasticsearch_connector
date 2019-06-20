@@ -261,7 +261,7 @@ class ElasticsearchObject extends FilterPluginBase {
     if ($this->realFilter instanceof FilterPluginBase && !empty($this->options['property_select']['property'])) {
       $this->realFilter->realField = sprintf(
         '%s.%s',
-        $this->realFilter->realField,
+        $this->options['field'],
         $this->options['property_select']['property']
       );
       // TODO: Somehow support full text fields in a future.
