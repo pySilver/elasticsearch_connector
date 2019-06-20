@@ -216,10 +216,7 @@ class SearchBuilder {
    */
   protected function setFilters(): void {
     $this->addLanguageConditions();
-    $this->parseFilterConditionGroup(
-      $this->query->getConditionGroup(),
-      $this->indexFields
-    );
+    $this->parseFilterConditionGroup($this->query->getConditionGroup(), $this->esRootQuery);
   }
 
   /**
@@ -281,16 +278,12 @@ class SearchBuilder {
    * @param \Drupal\search_api\Query\ConditionGroupInterface $condition_group
    *   The condition group object that holds all conditions that should be
    *   expressed as filters.
-   * @param \Drupal\search_api\Item\FieldInterface[] $index_fields
-   *   An array of all indexed fields for the index, keyed by field identifier.
+   * @param \Elastica\Query\BoolQuery $query
+   *   Filter query.
    *
    * @throws \Drupal\search_api\SearchApiException
    */
-  protected function parseFilterConditionGroup(
-    ConditionGroupInterface $condition_group,
-    array $index_fields
-  ): void {
-
+  protected function parseFilterConditionGroup(ConditionGroupInterface $condition_group, BoolQuery $query): BoolQuery {
     foreach ($condition_group->getConditions() as $condition) {
 
       // Simple filter [field_id, value, operator].
@@ -298,7 +291,10 @@ class SearchBuilder {
         $field_id = $condition->getField();
 
         // For some data type, we need to do conversions here.
-        if (isset($index_fields[$field_id]) && $index_fields[$field_id]->getType() === 'boolean') {
+        if (
+          isset($this->indexFields[$field_id]) &&
+          $this->indexFields[$field_id]->getType() === 'boolean'
+        ) {
           $condition->setValue((bool) $condition->getValue());
         }
 
@@ -307,27 +303,35 @@ class SearchBuilder {
 
         // Add filter/post_filter.
         if ($condition_group->getConjunction() === 'AND') {
-          $this->esRootQuery->addFilter($this->parseFilterCondition($condition));
+          $query->addFilter($this->parseFilterCondition($condition));
         }
         elseif ($condition_group->getConjunction() === 'OR') {
           // Filter provided by facet module with "OR" operator should use
           // post_filter instead of main query.
+          // TODO: Update/Verify facet OR query.
           if ($condition_group->hasTag(sprintf('facet:%s', $field_id))) {
             $filter = $this->parseFilterCondition($condition);
             $this->esPostFilter->addFilter($filter);
             $this->facetPostFilters[$field_id] = $filter;
           }
           else {
-            $this->esRootQuery->addShould($this->parseFilterCondition($condition));
+            $query->addShould($this->parseFilterCondition($condition));
           }
         }
 
       }
       // Nested filters.
       elseif ($condition instanceof ConditionGroupInterface) {
-        $this->parseFilterConditionGroup($condition, $index_fields);
+        if ($condition_group->getConjunction() === 'OR') {
+          $query->addShould($this->parseFilterConditionGroup($condition, new BoolQuery()));
+        }
+        else {
+          $query->addFilter($this->parseFilterConditionGroup($condition, new BoolQuery()));
+        }
       }
     }
+
+    return $query;
   }
 
   /**
