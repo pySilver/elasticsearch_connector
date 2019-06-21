@@ -1,0 +1,49 @@
+views.field.elasticsearch_object:
+  type: views.field.numeric
+  label: 'Elasticsearch Object'
+  mapping:
+    link_to_item:
+      type: boolean
+      label: 'Link to item'
+    use_highlighting:
+      type: boolean
+      label: 'Use highlighted field data'
+    multi_type:
+      type: string
+      label: 'Handling of multiple values'
+    multi_separator:
+      type: string
+      label: 'Separator for multiple values'
+    format_plural_values:
+      type: sequence
+      label: 'Pluralized strings'
+      sequence:
+        type: string
+        label: 'Singular/Plural string'
+
+views.filter.elasticsearch_object:
+  type: views_filter
+  label: 'Elasticsearch Object'
+  mapping:
+    value:
+      type: sequence
+      label: 'Values'
+      sequence:
+        type: string
+        label: 'Value'
+    expose:
+      type: mapping
+      label: 'Exposed'
+      mapping:
+        placeholder:
+          type: label
+          label: 'Placeholder'
+        min_placeholder:
+          type: label
+          label: 'Min placeholder'
+        max_placeholder:
+          type: label
+          label: 'Max placeholder'
+
+views.filter_value.elasticsearch_object:
+  type: views.filter_value.numeric
