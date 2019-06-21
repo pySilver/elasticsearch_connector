@@ -20,6 +20,13 @@ views.field.elasticsearch_object:
       sequence:
         type: string
         label: 'Singular/Plural string'
+    property_select:
+      type: mapping
+      label: 'Selected Property'
+      mapping:
+        property:
+          type: string
+          label: 'Property'
 
 views.filter.elasticsearch_object:
   type: views_filter
@@ -31,6 +38,13 @@ views.filter.elasticsearch_object:
       sequence:
         type: string
         label: 'Value'
+    property_select:
+      type: mapping
+      label: 'Selected Property'
+      mapping:
+        property:
+          type: string
+          label: 'Property'
     expose:
       type: mapping
       label: 'Exposed'
@@ -47,3 +61,15 @@ views.filter.elasticsearch_object:
 
 views.filter_value.elasticsearch_object:
   type: views.filter_value.numeric
+
+views.sort.elasticsearch_object:
+  type: views_sort
+  label: 'Elasticsearch Object'
+  mapping:
+    property_select:
+      type: mapping
+      label: 'Selected Property'
+      mapping:
+        property:
+          type: string
+          label: 'Property'
