@@ -788,6 +788,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
         ) {
           $field = clone $fields[$result_key];
           $field->setValues((array) $result_value);
+          $field->extraData['value'] = (array) $result_value;
           $result_item->setField($result_key, $field);
         }
       }
