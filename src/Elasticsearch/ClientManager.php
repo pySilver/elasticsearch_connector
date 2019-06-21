@@ -80,7 +80,9 @@ class ClientManager {
         $cluster
       );
 
-      $this->clients[$url] = new Client($options, NULL, $this->logger);
+      // $this->clients[$url] = new Client($options, NULL, $this->logger);
+      // Skip logger until severity is properly filtered.
+      $this->clients[$url] = new Client($options, NULL);
     }
 
     return $this->clients[$url];
