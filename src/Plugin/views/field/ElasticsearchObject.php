@@ -48,7 +48,7 @@ class ElasticsearchObject extends FieldPluginBase {
 
       // Field value passed via undocumented property `extraData`.
       // @see: \Drupal\elasticsearch_connector\Plugin\search_api\backend\SearchApiElasticsearchBackend::parseResult
-      $values->$property_path = $values->_item->getFields()[$field]->extraData['value'][$property];
+      $values->$property_path = $values->_item->getFields()[$field]->extraData['value'][0][$property];
 
       return $this->realHandler->advancedRender($values);
     }
