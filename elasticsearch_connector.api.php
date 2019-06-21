@@ -75,4 +75,10 @@ function hook_elasticsearch_connector_search_api_random_sort_alter(array &$rando
  *   Field name.
  */
 function hook_elasticsearch_connector_object_properties_alter(array &$properties, Index $index, string $field) {
+  $properties['field_id'] = [
+    'label' => 'My Field',
+    'field'  => 'search_api_boolean',
+    'filter' => 'search_api_boolean',
+    'sort'   => 'search_api',
+  ];
 }
