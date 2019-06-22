@@ -265,8 +265,6 @@ class SearchBuilder {
    *
    * @return string
    *   Nested field id, if required.
-   *
-   * @todo: Remove once nested support implemented
    */
   public static function getNestedPath(string $field_id): string {
     return str_replace('__', '.', $field_id);
