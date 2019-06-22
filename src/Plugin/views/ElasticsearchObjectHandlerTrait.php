@@ -64,12 +64,6 @@ trait ElasticsearchObjectHandlerTrait {
     $instance = $this->viewsHandlerManager->createInstance($plugin_id, $configuration);
 
     $options = $this->options;
-    $options['id'] = $options['field'] = sprintf(
-      '%s.%s',
-      $this->options['field'],
-      $this->options['property_select']['property']
-    );
-
     $instance->init($this->view, $this->displayHandler, $options);
     return $instance;
   }
@@ -127,7 +121,7 @@ trait ElasticsearchObjectHandlerTrait {
       );
     }
 
-    if (!empty($this->options['property_select']['property'])) {
+    if ($this->realHandler === NULL && !empty($this->options['property_select']['property'])) {
       $property_id = $this->options['property_select']['property'];
       $plugin_type = $this->getPluginDefinition()['plugin_type'];
       $plugin_id = $this->objectProperties[$property_id][$plugin_type];
@@ -272,6 +266,13 @@ trait ElasticsearchObjectHandlerTrait {
    */
   public function query() {
     if ($this->realHandler !== NULL && !empty($this->options['property_select']['property'])) {
+
+      $this->realHandler->realField = sprintf(
+        '%s.%s',
+        $this->options['field'],
+        $this->options['property_select']['property']
+      );
+
       // TODO: Add support for nested full text filters.
       if ($this->realHandler instanceof SearchApiFulltext) {
         throw new ElasticsearchConnectorException('Nested full text fields are not supported');
