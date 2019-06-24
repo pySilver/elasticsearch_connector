@@ -7,6 +7,8 @@
 
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\facets\Plugin\facets\facet_source\SearchApiDisplay;
+use Illuminate\Support\Str;
 
 /**
  * Implements hook_help().
@@ -57,7 +59,7 @@ function elasticsearch_connector_search_api_field_type_mapping_alter(array &$map
  * Implements hook_search_api_views_field_handler_mapping_alter().
  */
 function elasticsearch_connector_search_api_views_field_handler_mapping_alter(array &$mapping) {
-  $mapping['object'] = $mapping['nested_object']= [
+  $mapping['object'] = $mapping['nested_object'] = [
     'id' => 'elasticsearch_object',
   ];
 }
@@ -70,10 +72,10 @@ function elasticsearch_connector_search_api_views_handler_mapping_alter(array &$
     'argument' => [
       'id' => 'search_api',
     ],
-    'filter' => [
+    'filter'   => [
       'id' => 'elasticsearch_object',
     ],
-    'sort' => [
+    'sort'     => [
       'id' => 'elasticsearch_object',
     ],
   ];
@@ -170,20 +172,140 @@ function elasticsearch_connector_form_search_api_index_form_alter(&$form, FormSt
 }
 
 /**
- * Alter the Facets Query Type mapping.
- *
- * Modules may implement this hook to alter the mapping that defines how a
- * certain data type should be handled in Search API based Facets.
- *
- * @param string $backend_plugin_id
- *   Backend Plugin ID
- * @param array $query_types
- *   The Search API backend info array, keyed by backend ID.
- *
- * @see \Drupal\facets\Plugin\facets\facet_source\SearchApiBaseFacetSource
+ * Implements hook_form_FORM_ID_alter() on behalf of facets module
  */
-function elasticsearch_connector_facets_search_api_query_type_mapping_alter($backend_plugin_id, array &$query_types) {
-  if ($backend_plugin_id === 'elasticsearch') {
-    $query_types['nested'] = 'search_api_nested';
+function elasticsearch_connector_form_facets_facet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  /** @var \Drupal\facets\Entity\Facet $entity */
+  $entity = $form_state->getFormObject()->getEntity();
+  $facet_source_id = $entity->getFacetSourceId();
+
+  if (empty($facet_source_id)) {
+    return;
   }
+
+  $plugin_manager = \Drupal::service('plugin.manager.facets.facet_source');
+  /** @var \Drupal\facets\FacetSource\FacetSourcePluginInterface $facet_source */
+  $facet_source = $plugin_manager->createInstance($facet_source_id, ['facet' => $entity]);
+  if (!($facet_source instanceof SearchApiDisplay)) {
+    return;
+  }
+
+  $index = $facet_source->getIndex();
+  $source_fields = $source_fields = $form['facet_source_configs'][$facet_source_id]['field_identifier']['#options'];
+  $index_fields = $index->getFields();
+
+  // Remove hidden fields from source fields.
+  foreach ($index_fields as $field) {
+    if ($field->isHidden() && isset($source_fields[$field->getFieldIdentifier()])) {
+      unset($source_fields[$field->getFieldIdentifier()]);
+      continue;
+    }
+  }
+  $form['facet_source_configs'][$facet_source_id]['field_identifier']['#options'] = $source_fields;
+
+  // Detect nested object fields.
+  $nested_source_fields = [];
+  foreach ($source_fields as $source_field_key => $source_field) {
+    if (Str::contains($source_field_key, '__')) {
+      [$object_field] = explode('__', $source_field_key);
+      if (isset($index_fields[$object_field]) && $index_fields[$object_field]->getType() === 'nested_object') {
+        $nested_source_fields[$source_field_key] = $source_field;
+      }
+    }
+  }
+  if (empty($nested_source_fields)) {
+    return;
+  }
+
+  // Third-party settings
+  $settings = [];
+  if (!$entity->isNew()) {
+    $settings = $entity->getThirdPartySettings('elasticsearch_connector');
+  }
+  $settings = array_merge(
+    [
+      'nested' => [
+        'filter_field_value'      => '',
+        'filter_field_identifier' => '',
+      ],
+    ],
+    $settings
+  );
+
+  // Add settings for nested object facets.
+  $form['facet_source_configs'][$facet_source_id]['field_identifier']['#weight'] = 0;
+  $state_selector = sprintf(':input[name="facet_source_configs[%s][field_identifier]"]', $facet_source_id);
+  $state_values = [];
+  foreach (array_keys($nested_source_fields) as $trigger_value) {
+    $state_values[] = ['value' => $trigger_value];
+  }
+
+  $form['facet_source_configs'][$facet_source_id]['nested']['filter_field_identifier'] = [
+    '#type'          => 'select',
+    '#options'       => $nested_source_fields,
+    '#title'         => t('Nested filter field'),
+    '#description'   => t('The complementary field from the selected nested field which contains specific type identification.'),
+    '#required'      => FALSE,
+    '#default_value' => $settings['nested']['filter_field_identifier'],
+    '#weight'        => 1,
+    '#states'        => [
+      'visible' => [
+        $state_selector => $state_values,
+      ],
+    ],
+  ];
+
+  $form['facet_source_configs'][$facet_source_id]['nested']['filter_field_value'] = [
+    '#type'          => 'textfield',
+    '#title'         => t('Nested filter field value'),
+    '#default_value' => $settings['nested']['filter_field_value'],
+    '#description'   => t('The value to filter nested buckets against before building aggregations of a specific type.'),
+    '#weight'        => 1,
+    '#states'        => [
+      'visible' => [
+        $state_selector => $state_values,
+      ],
+    ],
+  ];
+
+  foreach (array_keys($form['actions']) as $action) {
+    if ($action !== 'preview' && isset($form['actions'][$action]['#type']) && $form['actions'][$action]['#type'] === 'submit') {
+      $form['actions'][$action]['#submit'][] = 'elasticsearch_connector_form_facets_facet_form_submit';
+    }
+  }
+}
+
+/**
+ * Implements save handler for altered facets form.
+ */
+function elasticsearch_connector_form_facets_facet_form_submit(array $form, FormStateInterface $form_state) {
+  /** @var \Drupal\facets\Entity\Facet $entity */
+  $entity = $form_state->getFormObject()->getEntity();
+  $facet_source_id = $entity->getFacetSourceId();
+
+  if (empty($facet_source_id)) {
+    return;
+  }
+
+  $plugin_manager = \Drupal::service('plugin.manager.facets.facet_source');
+  /** @var \Drupal\facets\FacetSource\FacetSourcePluginInterface $facet_source */
+  $facet_source = $plugin_manager->createInstance($facet_source_id, ['facet' => $entity]);
+  if (!($facet_source instanceof SearchApiDisplay)) {
+    return;
+  }
+
+  $value = $form_state->getValue([
+    'facet_source_configs',
+    $facet_source_id,
+    'nested',
+  ]);
+
+  if (!empty($value)) {
+    $entity->setThirdPartySetting('elasticsearch_connector', 'nested', $value);
+  }
+  else {
+    $entity->unsetThirdPartySetting('elasticsearch_connector', 'nested');
+  }
+
+  $entity->save();
 }

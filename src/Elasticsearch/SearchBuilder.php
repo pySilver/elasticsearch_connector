@@ -30,6 +30,7 @@ use Elastica\Aggregation\Min;
 use Elastica\Aggregation\TopHits;
 use Elastica\Aggregation\Histogram as HistogramAggregation;
 use Elastica\Aggregation\DateHistogram as DateHistogramAggregation;
+use Drupal\facets\Entity\Facet;
 use Drupal\facets\Plugin\facets\query_type\SearchApiDate;
 use Drupal\search_api\SearchApiException;
 use Drupal\search_api\Utility\Utility as SearchApiUtility;
@@ -197,10 +198,10 @@ class SearchBuilder {
       }
       elseif (in_array($field_id, $query_full_text_fields, TRUE)) {
         // Set the field that has not been analyzed for sorting.
-        $sort[self::getNestedPath($field_id) . '.keyword'] = $direction;
+        $sort[self::buildNestedField($field_id) . '.keyword'] = $direction;
       }
       else {
-        $sort[self::getNestedPath($field_id)] = $direction;
+        $sort[self::buildNestedField($field_id)] = $direction;
       }
     }
 
@@ -260,14 +261,61 @@ class SearchBuilder {
    * Nested objects are denoted with __ as path separator due to
    * Field machine name limitations.
    *
-   * @param string $field_id
+   * @param string $field_identifier
    *   Original field id.
    *
    * @return string
    *   Nested field id, if required.
    */
-  public static function getNestedPath(string $field_id): string {
-    return str_replace('__', '.', $field_id);
+  public static function buildNestedField(string $field_identifier): string {
+    return str_replace('__', '.', $field_identifier);
+  }
+
+  /**
+   * Returns base for a nested field.
+   *
+   * @param string $field_identifier
+   *   Field identifier.
+   *
+   * @return string
+   *   Field base path.
+   */
+  public static function getNestedField(string $field_identifier): string {
+    [$field_identifier] = explode('.', self::buildNestedField($field_identifier));
+    return $field_identifier;
+  }
+
+  /**
+   * Returns base name for a nested field.
+   *
+   * @param string $field_identifier
+   *   Field identifier.
+   *
+   * @return string
+   *   Last element of nested field path.
+   */
+  public static function getNestedFieldBaseName(string $field_identifier): string {
+    return basename(str_replace(['.', '__'], '/', $field_identifier));
+  }
+
+  /**
+   * Checks whether given field is an elasticsearch nested object type.
+   *
+   * @param string $field_identifier
+   *   Field identifier.
+   *
+   * @return bool
+   *   Result.
+   */
+  public function isNestedField(string $field_identifier): bool {
+    $field_identifier = self::buildNestedField($field_identifier);
+    $field_identifier = self::getNestedField($field_identifier);
+    if (isset($this->indexFields[$field_identifier]) &&
+        $this->indexFields[$field_identifier]->getType() === 'nested_object') {
+      return TRUE;
+    }
+
+    return FALSE;
   }
 
   /**
@@ -297,7 +345,7 @@ class SearchBuilder {
         }
 
         // Field might be nested object type:
-        $condition->setField(self::getNestedPath($condition->getField()));
+        $condition->setField(self::buildNestedField($condition->getField()));
 
         // Add filter/post_filter.
         if ($condition_group->getConjunction() === 'AND') {
@@ -306,11 +354,14 @@ class SearchBuilder {
         elseif ($condition_group->getConjunction() === 'OR') {
           // Filter provided by facet module with "OR" operator should use
           // post_filter instead of main query.
-          // TODO: Update/Verify facet OR query.
           if ($condition_group->hasTag(sprintf('facet:%s', $field_id))) {
-            $filter = $this->parseFilterCondition($condition);
-            $this->esPostFilter->addFilter($filter);
-            $this->facetPostFilters[$field_id] = $filter;
+            $facet_id = $this->getFacetIdFromConditionGroup($condition_group);
+            // Nested fields are handled in setFacets().
+            if (!empty($facet_id) && !$this->isNestedField($field_id)) {
+              $filter = $this->parseFilterCondition($condition);
+              $this->esPostFilter->addFilter($filter);
+              $this->facetPostFilters[$facet_id] = $filter;
+            }
           }
           else {
             $query->addShould($this->parseFilterCondition($condition));
@@ -321,15 +372,42 @@ class SearchBuilder {
       // Nested filters.
       elseif ($condition instanceof ConditionGroupInterface) {
         if ($condition_group->getConjunction() === 'OR') {
-          $query->addShould($this->parseFilterConditionGroup($condition, new BoolQuery()));
+          $clause = $this->parseFilterConditionGroup($condition, new BoolQuery());
+          if ($clause->count() > 0) {
+            $query->addShould($clause);
+          }
         }
         else {
-          $query->addFilter($this->parseFilterConditionGroup($condition, new BoolQuery()));
+          $clause = $this->parseFilterConditionGroup($condition, new BoolQuery());
+          if ($clause->count() > 0) {
+            $query->addFilter($clause);
+          }
         }
       }
     }
 
     return $query;
+  }
+
+  /**
+   * Finds facet machine name in condition group tags.
+   *
+   * @param \Drupal\search_api\Query\ConditionGroupInterface $group
+   *   Condition group object.
+   *
+   * @return string|null
+   *   Facet id, if found.
+   */
+  protected function getFacetIdFromConditionGroup(ConditionGroupInterface $group): ?string {
+    $ret = NULL;
+    foreach ($group->getTags() as $tag) {
+      if (Str::startsWith($tag, 'facet_id:')) {
+        [, $ret] = explode(':', $tag);
+        break;
+      }
+    }
+
+    return $ret;
   }
 
   /**
@@ -407,8 +485,8 @@ class SearchBuilder {
           $filter = new Range(
             $condition->getField(),
             [
-              'gt' => !empty($condition->getValue()[0]) ? (float) $condition->getValue()[0] : NULL,
-              'lt' => !empty($condition->getValue()[1]) ? (float) $condition->getValue()[1] : NULL,
+              'gte' => !empty($condition->getValue()[0]) ? (float) $condition->getValue()[0] : NULL,
+              'lte' => !empty($condition->getValue()[1]) ? (float) $condition->getValue()[1] : NULL,
             ]
           );
           break;
@@ -419,8 +497,8 @@ class SearchBuilder {
             new Range(
               $condition->getField(),
               [
-                'gt' => !empty($condition->getValue()[0]) ? (float) $condition->getValue()[0] : NULL,
-                'lt' => !empty($condition->getValue()[1]) ? (float) $condition->getValue()[1] : NULL,
+                'gte' => !empty($condition->getValue()[0]) ? (float) $condition->getValue()[0] : NULL,
+                'lte' => !empty($condition->getValue()[1]) ? (float) $condition->getValue()[1] : NULL,
               ]
             )
           );
@@ -432,15 +510,11 @@ class SearchBuilder {
     }
 
     // Adds support for nested queries:
-    if (Str::contains($condition->getField(), '.')) {
-      [$object_field] = explode('.', $condition->getField());
-      if (isset($this->indexFields[$object_field]) &&
-          $this->indexFields[$object_field]->getType() === 'nested_object') {
-        $nested_filter = new Nested();
-        $nested_filter->setPath($object_field);
-        $nested_filter->setQuery($filter);
-        $filter = $nested_filter;
-      }
+    if ($this->isNestedField($condition->getField())) {
+      $nested_filter = new Nested();
+      $nested_filter->setPath(self::getNestedField($condition->getField()));
+      $nested_filter->setQuery($filter);
+      $filter = $nested_filter;
     }
 
     return $filter;
@@ -684,7 +758,7 @@ class SearchBuilder {
     }
 
     // Object fields support:
-    $fields = array_map([$this, 'getNestedPath'], $mlt_options['fields']);
+    $fields = array_map([$this, 'buildNestedField'], $mlt_options['fields']);
 
     $mltQuery = new MoreLikeThis();
     $mltQuery->setFields(array_values($fields));
@@ -881,143 +955,94 @@ class SearchBuilder {
     /** @var \Elastica\Aggregation\Filter[] $aggs */
     $aggs = [];
 
-    foreach ($facets as $facet_id => $facet) {
-      $agg = NULL;
+    foreach ($facets as $facet_id => $facet_options) {
+      /** @var \Drupal\facets\Entity\Facet $facet_obj */
+      $facet_obj = $facet_options['facet'];
 
       // Field might be part of objects that are flattened in search api.
-      $facet['field'] = self::getNestedPath($facet['field']);
+      $facet_options['field'] = self::buildNestedField($facet_options['field']);
+      $values_field = $facet_options['field'];
+      $is_nested_field = $this->isNestedField($facet_options['field']);
 
-      switch ($facet['query_type']) {
-        case 'search_api_range':
-          $min_agg = new Min('min');
-          $min_agg->setField($facet['field']);
+      // Default filter.
+      $filter_agg = new FilterAggregation($facet_id);
+      $filter_agg->setFilter(new MatchAll());
 
-          $max_agg = new Max('max');
-          $max_agg->setField($facet['field']);
+      // Setup nested aggregation wrapper.
+      if ($is_nested_field) {
+        $options = $facet_obj->getThirdPartySettings('elasticsearch_connector')['nested'];
+        $nested_field = self::getNestedField($facet_options['field']);
+        $values_field = self::buildNestedField($facet_options['field']);
+        $filter_field = self::buildNestedField($options['filter_field_identifier']);
+        $filter_value = $options['filter_field_value'];
 
-          $agg = new FilterAggregation($facet_id);
-          $agg->addAggregation($min_agg);
-          $agg->addAggregation($max_agg);
-          break;
+        // Nested field should use nested aggregation.
+        $nested_agg = new NestedAggregation(
+          $facet_id,
+          $nested_field
+        );
+        $filter_agg->addAggregation($nested_agg);
 
-        case 'search_api_granular':
-        case 'search_api_date':
-          if (isset($facet['date_display'])) {
-            $histogram = new DateHistogramAggregation(
-              $facet_id,
-              $facet['field'],
-              $this->getFacetApiDateGranularity($facet['granularity'])
-            );
+        // Nested values needs to be filtered before aggregation.
+        $values_filter_agg = new FilterAggregation(
+          $facet_id,
+          new Term([$filter_field => ['value' => $filter_value]])
+        );
+        $nested_agg->addAggregation($values_filter_agg);
+
+        // Create underlying facet.
+        $facet_options['limit'] = 1000;
+        $this->buildFacetAggregation($facet_id, $values_field, $facet_options, $values_filter_agg);
+
+        // Add top hits aggregation for terms agg.
+        if ($facet_options['query_type'] === 'search_api_string' && !empty($values_filter_agg->getAggs())) {
+          /** @var \Elastica\Aggregation\Terms $terms_agg */
+          $terms_agg = $values_filter_agg->getAggs()[0];
+          if ($terms_agg instanceof TermsAggregation) {
+            $top_hits_agg = new TopHits($facet_id);
+            $top_hits_agg->setSize(1);
+            $top_hits_agg->setSource($nested_field);
+            $terms_agg->addAggregation($top_hits_agg);
           }
-          else {
-            $histogram = new HistogramAggregation($facet_id, $facet['field'], $facet['granularity']);
-            if (is_numeric($facet['min_value']) && is_numeric($facet['max_value'])) {
-              $agg->setParam('setExtendedBounds', [
-                'min' => $facet['min_value'],
-                'max' => $facet['max_value'],
-              ]);
-            }
-          }
+        }
 
-          $agg = new FilterAggregation($facet_id);
-          $agg->addAggregation($histogram);
-          break;
-
-        case 'search_api_nested':
-          // TODO: Add support for numeric values.
-          // Outermost filter aggregation:
-          $agg = new FilterAggregation($facet_id);
-
-          // That contains nested aggregation required by nested object mapping.
-          $nested_agg = new NestedAggregation($facet_id, $facet['nested_path']);
-
-          // ...That contains inner filter aggregation used
-          // to group results by $facet['group_field_value']:
-          $filter_agg = new FilterAggregation(
-            $facet_id,
-            new Term([
-              sprintf('%s.%s', $facet['nested_path'], $facet['group_field_name']) => [
-                'value' => $facet['group_field_value'],
-              ],
-            ])
-          );
-
-          // ...That contains inner terms aggregation
-          // to build buckets of values:
-          $terms_agg = new TermsAggregation($facet_id);
-          $terms_agg->setSize(1000);
-          $terms_agg->setField(sprintf('%s.%s', $facet['nested_path'], $facet['value_field_name']));
-
-          // ...That contains inner top hits aggregation
-          // to retrieve more data from nested objects.
-          $top_hits_agg = new TopHits($facet_id);
-          $top_hits_agg->setSize(1);
-          $top_hits_agg->setSource($facet['nested_path']);
-
-          // Build the agg:
-          $terms_agg->addAggregation($top_hits_agg);
-          $filter_agg->addAggregation($terms_agg);
-          $nested_agg->addAggregation($filter_agg);
-          $agg->addAggregation($nested_agg);
-
-          // Process selected values.
-          $this->filterActiveNestedFacetValues($facet);
-          break;
-
-        case 'search_api_string':
-        default:
-          $terms_agg = new TermsAggregation($facet_id);
-          $terms_agg->setField($facet['field']);
-          $terms_agg->setMinimumDocumentCount($facet['min_count']);
-          if ($facet['limit'] > 0) {
-            $terms_agg->setSize($facet['limit']);
-          }
-
-          if ($facet['missing']) {
-            $terms_agg->setParam('missing', '');
-          }
-
-          $agg = new FilterAggregation($facet_id);
-          $agg->addAggregation($terms_agg);
-          break;
+        // Process selected values to build filters.
+        $this->filterActiveNestedFacetValues(
+          $facet_obj,
+          $facet_id,
+          $facet_options['query_type'],
+          $nested_field,
+          $values_field,
+          $filter_field,
+          $filter_value
+        );
+      }
+      // Setup basic flat field based aggregation.
+      else {
+        $this->buildFacetAggregation($facet_id, $values_field, $facet_options, $filter_agg);
       }
 
-      if ($agg === NULL) {
-        continue;
-      }
-
-      $agg->setFilter(new MatchAll());
-      $aggs[$facet_id] = $agg;
+      $aggs[$facet_id] = $filter_agg;
     }
 
     // Construct filters based on post_filter for facets
     // with "OR" query operator.
-    foreach ($facets as $facet_id => $facet) {
+    foreach ($facets as $facet_id => $facet_options) {
       if (!isset($aggs[$facet_id])) {
         continue;
       }
 
       $agg = $aggs[$facet_id];
-      if ($facet['operator'] !== 'or') {
+      if ($facet_options['operator'] !== 'or') {
         $this->esQuery->addAggregation($agg);
         continue;
-      }
-
-      $facet_field_id = $facet['field'];
-      if ($facet['query_type'] === 'search_api_nested') {
-        $facet_field_id = sprintf(
-          '%s.%s:%s',
-          $facet['nested_path'],
-          $facet['group_field_name'],
-          $facet['group_field_value']
-        );
       }
 
       // Filter for aggregation should contain full post filter - without
       // filtering for currently processed facet.
       $facet_filter = new BoolQuery();
-      foreach ($this->facetPostFilters as $field_id => $filter) {
-        if ($field_id === $facet_field_id) {
+      foreach ($this->facetPostFilters as $filter_facet_id => $filter) {
+        if ($filter_facet_id === $facet_id) {
           continue;
         }
         $facet_filter->addFilter($filter);
@@ -1029,41 +1054,130 @@ class SearchBuilder {
   }
 
   /**
+   * Build aggregation for single facet.
+   *
+   * @param string $facet_id
+   *   Facet machine name.
+   * @param string $values_field
+   *   Values field for facet.
+   * @param array $facet_options
+   *   Provided facet options.
+   * @param \Elastica\Aggregation\Filter $filter_agg
+   *   Parent filter aggregation to attach created aggregation.
+   */
+  protected function buildFacetAggregation(
+    string $facet_id,
+    string $values_field,
+    array $facet_options,
+    FilterAggregation $filter_agg
+  ): void {
+    switch ($facet_options['query_type']) {
+      case 'search_api_range':
+        $min_agg = new Min('min');
+        $min_agg->setField($values_field);
+        $max_agg = new Max('max');
+        $max_agg->setField($values_field);
+        $filter_agg->addAggregation($min_agg);
+        $filter_agg->addAggregation($max_agg);
+        break;
+
+      case 'search_api_granular':
+      case 'search_api_date':
+        if (isset($facet_options['date_display'])) {
+          $histogram = new DateHistogramAggregation(
+            $facet_id,
+            $values_field,
+            $this->getFacetApiDateGranularity($facet_options['granularity'])
+          );
+        }
+        else {
+          $histogram = new HistogramAggregation($facet_id, $values_field, $facet_options['granularity']);
+          if (is_numeric($facet_options['min_value']) && is_numeric($facet_options['max_value'])) {
+            $histogram->setParam('setExtendedBounds', [
+              'min' => $facet_options['min_value'],
+              'max' => $facet_options['max_value'],
+            ]);
+          }
+        }
+        $filter_agg->addAggregation($histogram);
+        break;
+
+      case 'search_api_string':
+      default:
+        $terms_agg = new TermsAggregation($facet_id);
+        $terms_agg->setField($values_field);
+        $terms_agg->setMinimumDocumentCount($facet_options['min_count']);
+        if ($facet_options['limit'] > 0) {
+          $terms_agg->setSize($facet_options['limit']);
+        }
+        if ($facet_options['missing']) {
+          $terms_agg->setParam('missing', '');
+        }
+        $filter_agg->addAggregation($terms_agg);
+        break;
+    }
+  }
+
+  /**
    * Adds filter for nested aggregations.
    *
-   * @param array $current_facet
-   *   Currently processed facet.
+   * @param \Drupal\facets\Entity\Facet $facet
+   *   Facet object.
+   * @param string $facet_id
+   *   Facet machine name.
+   * @param string $query_type
+   *   Facet query type.
+   * @param string $nested_field
+   *   Nested field.
+   * @param string $values_field
+   *   Values field.
+   * @param string $filter_field
+   *   Nested filter field.
+   * @param string $filter_value
+   *   Nested filter field value.
    */
-  protected function filterActiveNestedFacetValues(array $current_facet): void {
-
-    /** @var \Drupal\facets\Entity\Facet $facet */
-    $facet = $current_facet['facet'];
+  protected function filterActiveNestedFacetValues(
+    Facet $facet,
+    string $facet_id,
+    string $query_type,
+    string $nested_field,
+    string $values_field,
+    string $filter_field,
+    string $filter_value
+  ): void {
     $active_items = $facet->getActiveItems();
     $exclude = $facet->getExclude();
     if (empty($active_items)) {
       return;
     }
 
-    $filter_field = sprintf(
-      '%s.%s',
-      $current_facet['nested_path'],
-      $current_facet['group_field_name']
-    );
+    $type_filter = new Term([$filter_field => ['value' => $filter_value]]);
+    switch ($query_type) {
+      // TODO: Test date & granular queries.
+//      case 'search_api_granular':
+//      case 'search_api_date':
+      case 'search_api_range':
+        $active_items = $active_items[0];
+        $value_filter = new Range(
+          $values_field,
+          [
+            'gte' => isset($active_items[0]) ? (float) $active_items[0] : NULL,
+            'lte' => isset($active_items[1]) ? (float) $active_items[1] : NULL,
+          ]
+        );
+        break;
 
-    $value_field = sprintf(
-      '%s.%s',
-      $current_facet['nested_path'],
-      $current_facet['value_field_name']
-    );
+      case 'search_api_string':
+      default:
+        $value_filter = new Terms($values_field, $active_items);
+        break;
+    }
 
-    $type_filter = new Term([$filter_field => ['value' => $current_facet['group_field_value']]]);
-    $value_filter = new Terms($value_field, $active_items);
     if ($exclude) {
       $value_filter = (new BoolQuery())->addMustNot($value_filter);
     }
-
     $nested_filter = new Nested();
-    $nested_filter->setPath($current_facet['nested_path']);
+    $nested_filter->setPath($nested_field);
     $nested_filter->setQuery(
       (new BoolQuery())->addFilter($type_filter)->addFilter($value_filter)
     );
@@ -1071,15 +1185,12 @@ class SearchBuilder {
     // Facet "OR" query operator uses post_filter to widen search options.
     if ($facet->getQueryOperator() === 'or') {
       $this->esPostFilter->addFilter($nested_filter);
-
-      $field_id = sprintf('%s:%s', $filter_field, $current_facet['group_field_value']);
-      $this->facetPostFilters[$field_id] = $nested_filter;
+      $this->facetPostFilters[$facet_id] = $nested_filter;
     }
     // Facet "AND" query operator uses query filter to narrow search options.
     else {
       $this->esRootQuery->addFilter($nested_filter);
     }
-
   }
 
 }

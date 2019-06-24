@@ -764,7 +764,6 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       $result_item->setScore($result['_score']);
 
       // Nested objects needs to be unwrapped before passing into fields.
-      // TODO: Remove once nested support implemented.
       $flatten_result = Utility::dot($result['_source'], '', '__');
       foreach ($flatten_result as $result_key => $result_value) {
         if (isset($fields[$result_key])) {
@@ -823,29 +822,34 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
 
       $terms = [];
 
-      // Buckets have different path depending on request.
+      // Buckets may be nested.
       $buckets = [];
-      if (isset($aggregations[$facet_id][$facet_id]['buckets'])) {
-        $buckets = $aggregations[$facet_id][$facet_id]['buckets'];
-      }
-      elseif (isset($aggregations[$facet_id]['buckets'])) {
-        $buckets = $aggregations[$facet_id]['buckets'];
-      }
-      elseif (
-        $facet['query_type'] === 'search_api_nested' &&
-        isset($aggregations[$facet_id][$facet_id][$facet_id][$facet_id]['buckets'])
-      ) {
-        $buckets = $aggregations[$facet_id][$facet_id][$facet_id][$facet_id]['buckets'];
-      }
-      elseif ($facet['query_type'] === 'search_api_range' && isset($aggregations[$facet_id])) {
-        $buckets[] = [
-          'doc_count' => $aggregations[$facet_id]['doc_count'],
-          'key'       => $aggregations[$facet_id]['min']['value'],
-        ];
-        $buckets[] = [
-          'doc_count' => $aggregations[$facet_id]['doc_count'],
-          'key'       => $aggregations[$facet_id]['max']['value'],
-        ];
+      $agg = $aggregations[$facet_id];
+      while ($agg !== NULL) {
+        if ($facet['query_type'] === 'search_api_range') {
+          if (isset($agg['min']['value']) || isset($agg['max']['value'])) {
+            $buckets[] = [
+              'doc_count' => $aggregations[$facet_id]['doc_count'],
+              'key'       => $agg['min']['value'],
+            ];
+            $buckets[] = [
+              'doc_count' => $aggregations[$facet_id]['doc_count'],
+              'key'       => $agg['max']['value'],
+            ];
+            break;
+          }
+        }
+        elseif (isset($agg['buckets'])) {
+          $buckets = $agg['buckets'];
+          break;
+        }
+
+        if (isset($agg[$facet_id])) {
+          $agg = $agg[$facet_id];
+          continue;
+        }
+
+        $agg = NULL;
       }
 
       array_walk($buckets, static function ($value) use (&$terms, $facet) {
