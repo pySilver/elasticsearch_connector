@@ -10,7 +10,6 @@ use Drupal\search_api\Item\FieldInterface;
 use Drupal\search_api\Utility\Utility;
 use Drupal\elasticsearch_connector\Event\PrepareIndexEvent;
 use Drupal\elasticsearch_connector\Event\PrepareIndexMappingEvent;
-use Drupal\search_api_autocomplete\Suggester\SuggesterInterface;
 use Elastica\Document;
 
 /**
