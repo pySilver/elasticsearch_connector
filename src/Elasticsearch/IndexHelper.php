@@ -71,29 +71,6 @@ class IndexHelper {
    * Build parameters to bulk delete indexes.
    *
    * @param \Drupal\search_api\IndexInterface $index
-   * @param array $ids
-   *
-   * @return array
-   */
-  public static function bulkDelete(IndexInterface $index, array $ids) {
-    $params = self::index($index);
-    foreach ($ids as $id) {
-      $params['body'][] = [
-        'delete' => [
-          '_index' => $params['index'],
-          '_type'  => $params['type'],
-          '_id'    => $id,
-        ],
-      ];
-    }
-
-    return $params;
-  }
-
-  /**
-   * Build parameters to bulk delete indexes.
-   *
-   * @param \Drupal\search_api\IndexInterface $index
    *   Index object.
    * @param \Drupal\search_api\Item\ItemInterface[] $items
    *   An array of items to be indexed, keyed by their item IDs.
@@ -120,27 +97,6 @@ class IndexHelper {
         }
         $data[$field->getFieldIdentifier()] = $values;
       }
-
-      //      /** @var \Drupal\search_api\Item\FieldInterface $field */
-      //      foreach ($item as $name => $field) {
-      //        $field_type = $field->getType();
-      //
-      //        // Set to list only if list.
-      //        $value   = NULL;
-      //        $is_list = self::isFieldList($index, $field);
-      //        if ($is_list) {
-      //          $value = [];
-      //        }
-      //        foreach ($field->getValues() as $val) {
-      //          if ($is_list) {
-      //            $value[] = self::getFieldValue($field_type, $val);
-      //          }
-      //          else {
-      //            $value = self::getFieldValue($field_type, $val);
-      //          }
-      //        }
-      //        $data[$field->getFieldIdentifier()] = $value;
-      //      }
 
       // Allow other modules to alter document before we create it.
       $documentIndexEvent = new PrepareDocumentIndexEvent(
@@ -349,46 +305,6 @@ class IndexHelper {
     }
 
     return $value;
-  }
-
-  /**
-   * Helper function. Returns true if the field is a list of values.
-   *
-   * @param \Drupal\search_api\IndexInterface $index
-   *   Index.
-   * @param \Drupal\search_api\Item\FieldInterface $field
-   *   Field.
-   *
-   * @return bool
-   *   Returns list check result.
-   *
-   * @throws \Drupal\search_api\SearchApiException
-   */
-  protected static function isFieldList(IndexInterface $index, FieldInterface $field): bool {
-    $is_list = FALSE;
-
-    // Ensure we get the field definition for the
-    // root/parent field item (ie tags).
-    $property_definitions = $index->getPropertyDefinitions($field->getDatasourceId());
-    $root_property = Utility::splitPropertyPath($field->getPropertyPath(), FALSE)[0];
-    $field_definition = $property_definitions[$root_property];
-
-    // Using $field_definition->isList() doesn't seem to be accurate, so we
-    // check the fieldStorage cardinality !=1.
-    if ($field_definition instanceof FieldConfigInterface) {
-      $storage = $field_definition->getFieldStorageDefinition();
-      if (1 !== $storage->getCardinality()) {
-        $is_list = TRUE;
-      }
-    }
-
-    // Inspect values to determine if this is an intentional array.
-    $values = $field->getValues();
-    if (count($values) > 1 || (!empty($values) && is_array(array_shift($values)))) {
-      $is_list = TRUE;
-    }
-
-    return $is_list;
   }
 
 }

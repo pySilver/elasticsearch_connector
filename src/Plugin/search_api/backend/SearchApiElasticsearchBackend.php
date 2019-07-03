@@ -597,7 +597,7 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
   /**
    * {@inheritdoc}
    */
-  public function deleteAllIndexItems(IndexInterface $index, $datasource_id = NULL) {
+  public function deleteAllIndexItems(IndexInterface $index, $datasource_id = NULL): void {
     $this->removeIndex($index);
     $this->addIndex($index);
   }
@@ -610,10 +610,35 @@ class SearchApiElasticsearchBackend extends BackendPluginBase implements PluginF
       return;
     }
 
+    $params = $this->indexFactory::index($index);
     try {
-      $this->client->bulk(
-        $this->indexFactory::bulkDelete($index, $ids)
-      );
+      $type = $this->client->getIndex($params['index'])->getType($params['type']);
+      if (!$type->exists()) {
+        $this->messenger->addMessage(
+          $this->t('Failed to delete documents. Mapping type does not exist.'),
+          'error'
+        );
+      }
+    }
+    catch (ResponseException | ConnectionException $e) {
+      $this->messenger->addMessage($e->getMessage(), 'error');
+      return;
+    }
+
+    try {
+      /** @var \Elastica\Bulk\ResponseSet $response */
+      $response = $type->deleteIds($ids);
+      $this->client->getIndex($params['index'])->refresh();
+
+      // If there were any errors, log them and throw an exception.
+      if ($response->hasError()) {
+        foreach ($response->getBulkResponses() as $bulkResponse) {
+          if ($bulkResponse->hasError()) {
+            $this->logger->error($bulkResponse->getError());
+          }
+        }
+        throw new SearchApiException($this->t('An error occurred during items removal. Check your watchdog for more information.'));
+      }
     }
     catch (ResponseException | ConnectionException $e) {
       $this->messenger->addMessage($e->getMessage(), 'error');
