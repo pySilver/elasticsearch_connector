@@ -16,7 +16,7 @@
     "require": {
         "php": ">=7.0",
         "illuminate/support": "~5.8.18",
-        "convertiser/elastica": "dev-master"
+        "ruflin/elastica": "dev-master"
     },
     "require-dev": {
         "drupal/search_api": "^1.4",
