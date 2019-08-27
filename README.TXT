@@ -1,3 +1,5 @@
+THIS REPOSITORY IS NOT SUPPORTED: https://www.drupal.org/project/elasticsearch_connector/issues/3077463
+
 Elasticsearch Connector is a set of modules designed to build a full Elasticsearch eco system in Drupal.
 
 Installation
